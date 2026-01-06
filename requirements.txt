@@ -1,0 +1,5 @@
+langchain
+langchain-google-generativeai
+pydantic
+python-dotenv
+ruff  # For linting
