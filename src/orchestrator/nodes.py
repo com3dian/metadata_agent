@@ -6,7 +6,7 @@ import logging
 import os
 from typing import Any, Dict, List
 
-from langchain_google_generativeai import ChatGoogleGenerativeAI
+from langchain_google_genai import ChatGoogleGenerativeAI
 
 from . import prompts
 from . import utils
