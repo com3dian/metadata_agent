@@ -1,6 +1,3 @@
-"""
-This file contains utility functions for the orchestrator.
-"""
 from typing import List, Dict, Any, Tuple
 
 def validate_plan_dataflow(plan: List[Dict[str, Any]]) -> Tuple[bool, str]:
