@@ -1,7 +1,16 @@
+"""Streamlit page for the metadata generation demo.
+
+The page owns only UI concerns: collecting user inputs, showing a data preview,
+triggering the workflow, caching results in Streamlit session state, and
+rendering the workflow output.
+"""
+
 import sys
 from pathlib import Path
+from typing import Any
 
 import streamlit as st
+from streamlit.runtime.uploaded_file_manager import UploadedFile
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -19,12 +28,12 @@ from demo.workflows.metadata_generation import (
 )
 
 
-st.set_page_config(page_title="Metadata Generation", page_icon="MD", layout="wide")
-st.title("Metadata Generation")
+def render_controls() -> tuple[UploadedFile | None, str]:
+    """Render upload and standard selection controls.
 
-controls_col, preview_col = st.columns([1, 2], gap="large")
-
-with controls_col:
+    Returns:
+        The uploaded file, if present, and the selected metadata standard name.
+    """
     uploaded_file = st.file_uploader(
         "Upload a dataset",
         type=SUPPORTED_FILE_TYPES,
@@ -35,16 +44,16 @@ with controls_col:
         options=available_metadata_standards(),
         index=0,
     )
+    return uploaded_file, standard_name
 
-if uploaded_file is None:
-    with preview_col:
-        st.info("Upload a CSV or TSV file to start.")
-    st.stop()
 
-file_bytes = uploaded_file.getvalue()
-file_key = uploaded_file_key(file_bytes, standard_name)
+def render_preview(uploaded_file: UploadedFile, file_bytes: bytes) -> None:
+    """Render a preview table for the uploaded dataset.
 
-with preview_col:
+    Args:
+        uploaded_file: Streamlit uploaded file object.
+        file_bytes: Raw uploaded file bytes.
+    """
     st.subheader("Data preview")
     try:
         st.dataframe(
@@ -55,36 +64,46 @@ with preview_col:
     except Exception as exc:
         st.warning(f"Preview unavailable: {exc}")
 
-if "metadata_generation_results" not in st.session_state:
-    st.session_state.metadata_generation_results = {}
 
-with controls_col:
-    run_clicked = st.button("Generate metadata", type="primary", use_container_width=True)
-cached_result = st.session_state.metadata_generation_results.get(file_key)
+def run_generation(
+    uploaded_file: UploadedFile,
+    file_bytes: bytes,
+    standard_name: str,
+    file_key: str,
+) -> dict[str, Any]:
+    """Run the metadata workflow and cache the result in session state.
 
-if run_clicked and cached_result is None:
-    with preview_col:
-        progress = st.status("Generating metadata", expanded=True)
+    Args:
+        uploaded_file: Streamlit uploaded file object.
+        file_bytes: Raw uploaded file bytes.
+        standard_name: Selected metadata standard name.
+        file_key: Stable cache key for the uploaded file and standard.
 
+    Returns:
+        JSON-friendly metadata generation result.
+    """
+    progress = st.status("Generating metadata", expanded=True)
     try:
         progress.write("File uploaded and staged for analysis.")
         progress.write("Running the metadata agent.")
-        cached_result = generate_metadata(uploaded_file.name, file_bytes, standard_name)
-        st.session_state.metadata_generation_results[file_key] = cached_result
+        result = generate_metadata(uploaded_file.name, file_bytes, standard_name)
+        st.session_state.metadata_generation_results[file_key] = result
         progress.update(label="Metadata generated", state="complete")
+        return result
     except Exception as exc:
         progress.update(label="Metadata generation failed", state="error")
         st.exception(exc)
         st.stop()
 
-if cached_result is None:
-    with preview_col:
-        st.caption("Click Generate metadata to run the agent.")
-    st.stop()
 
-metadata = extract_metadata(cached_result)
+def render_result(result: dict[str, Any]) -> None:
+    """Render generated metadata and compact execution details.
 
-with preview_col:
+    Args:
+        result: JSON-friendly metadata generation result.
+    """
+    metadata = extract_metadata(result)
+
     st.subheader("Generated metadata")
     if metadata:
         st.json(metadata)
@@ -93,11 +112,56 @@ with preview_col:
 
     with st.expander("Execution details"):
         col1, col2, col3 = st.columns(3)
-        col1.metric("Plan steps", cached_result.get("plan_steps_count", 0))
-        col2.metric("Completed", cached_result.get("steps_completed", 0))
-        col3.metric("Success", "Yes" if cached_result.get("success") else "No")
+        col1.metric("Plan steps", result.get("plan_steps_count", 0))
+        col2.metric("Completed", result.get("steps_completed", 0))
+        col3.metric("Success", "Yes" if result.get("success") else "No")
 
-        if cached_result.get("error"):
-            st.error(cached_result["error"])
+        if result.get("error"):
+            st.error(result["error"])
 
-        st.json(execution_details(cached_result))
+        st.json(execution_details(result))
+
+
+def main() -> None:
+    """Render the metadata generation Streamlit page."""
+    st.set_page_config(page_title="Metadata Generation", page_icon="MD", layout="wide")
+    st.title("Metadata Generation")
+
+    controls_col, preview_col = st.columns([1, 2], gap="large")
+
+    with controls_col:
+        uploaded_file, standard_name = render_controls()
+
+    if uploaded_file is None:
+        with preview_col:
+            st.info("Upload a CSV or TSV file to start.")
+        st.stop()
+
+    file_bytes = uploaded_file.getvalue()
+    file_key = uploaded_file_key(file_bytes, standard_name)
+
+    with preview_col:
+        render_preview(uploaded_file, file_bytes)
+
+    if "metadata_generation_results" not in st.session_state:
+        st.session_state.metadata_generation_results = {}
+
+    with controls_col:
+        run_clicked = st.button("Generate metadata", type="primary", use_container_width=True)
+
+    cached_result = st.session_state.metadata_generation_results.get(file_key)
+
+    if run_clicked and cached_result is None:
+        with preview_col:
+            cached_result = run_generation(uploaded_file, file_bytes, standard_name, file_key)
+
+    if cached_result is None:
+        with preview_col:
+            st.caption("Click Generate metadata to run the agent.")
+        st.stop()
+
+    with preview_col:
+        render_result(cached_result)
+
+
+main()
