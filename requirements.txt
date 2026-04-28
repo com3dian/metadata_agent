@@ -6,3 +6,6 @@ pydantic
 python-dotenv
 pandas
 ruff  # For linting
+
+# Demo
+streamlit
