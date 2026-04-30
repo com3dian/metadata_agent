@@ -83,7 +83,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 # Default execution topology
 # Can be overridden by environment variable: DEFAULT_TOPOLOGY
-DEFAULT_TOPOLOGY = os.getenv("DEFAULT_TOPOLOGY", "default")
+DEFAULT_TOPOLOGY = os.getenv("DEFAULT_TOPOLOGY", "single")
 
 # Default metadata standard
 # Can be overridden by environment variable: DEFAULT_METADATA_STANDARD

@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "metadata-agent"
+version = "0.1.0"
+description = "Agentic tool for extracting metadata from datasets."
+readme = "readme.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "com3dian" }]
+dynamic = ["dependencies"]
+
+[project.scripts]
+metadata-agent = "src.main:main"
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.txt"] }
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src", "src.*"]

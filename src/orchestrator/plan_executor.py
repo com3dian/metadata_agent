@@ -61,8 +61,8 @@ class PlanExecutor:
         context: ExecutionContext,
         context_key: str,
         metadata_standard: str,
-        metadata_standard_name: Optional[str] = None,
-        player_pool: List[str] = None,
+        metadata_standard_name: Optional[str] = "",
+        player_pool: List[str] = [],
     ) -> ExecutionResult:
         """
         Execute the complete plan.

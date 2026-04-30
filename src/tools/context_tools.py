@@ -102,7 +102,7 @@ def get_resource_info(context_key: str, resource: str) -> Dict[str, Any]:
 
 
 @tool
-def get_item_count(context_key: str, resource: str = None) -> int:
+def get_item_count(context_key: str, resource: str = "") -> int | str:
     """
     Get the number of items in a resource.
     """
@@ -116,7 +116,7 @@ def get_item_count(context_key: str, resource: str = None) -> int:
 
 
 @tool
-def get_field_names(context_key: str, resource: str = None) -> List[str]:
+def get_field_names(context_key: str, resource: str = "") -> List[str]:
     """
     Get the field names for a resource.
     """
@@ -130,7 +130,7 @@ def get_field_names(context_key: str, resource: str = None) -> List[str]:
 
 
 @tool
-def get_field_types(context_key: str, resource: str = None) -> Dict[str, str]:
+def get_field_types(context_key: str, resource: str = "") -> Dict[str, str]:
     """
     Get data types for all fields in a resource.
     """
@@ -175,7 +175,7 @@ def get_field_statistics(context_key: str, resource: str = "") -> Dict[str, Any]
 
 
 @tool
-def get_missing_values(context_key: str, resource: str = "") -> Dict[str, int]:
+def get_missing_values(context_key: str, resource: str = "") -> Dict[str, int | str]:
     """
     Get count of missing values per field.
     """
@@ -315,7 +315,7 @@ def _detect_temporal_dtype(series: pd.Series) -> Optional[str]:
         
         # Try to parse as datetime
         try:
-            parsed = pd.to_datetime(sample, errors="coerce", infer_datetime_format=True)
+            parsed = pd.to_datetime(sample, errors="coerce", format="mixed")
             valid_ratio = parsed.notna().sum() / len(sample)
             if valid_ratio > 0.8:
                 return "datetime_string"
@@ -381,7 +381,7 @@ def _detect_wkt_geometry(series: pd.Series) -> Optional[str]:
 
 
 @tool
-def detect_temporal_columns(context_key: str, resource: str = None) -> Dict[str, Any]:
+def detect_temporal_columns(context_key: str, resource: str = "") -> Dict[str, Any]:
     """
     Detect columns that contain temporal (date/time) data in a resource.
     Returns column names, detected types, and temporal characteristics.
@@ -451,7 +451,7 @@ def analyze_temporal_column(
             parsed = series
         else:
             try:
-                parsed = pd.to_datetime(series, errors="coerce", infer_datetime_format=True)
+                parsed = pd.to_datetime(series, errors="coerce", format="mixed")
             except Exception:
                 pass
         
@@ -504,7 +504,7 @@ def analyze_temporal_column(
 
 
 @tool
-def detect_spatial_columns(context_key: str, resource: str = None) -> Dict[str, Any]:
+def detect_spatial_columns(context_key: str, resource: str = "") -> Dict[str, Any]:
     """
     Detect columns that contain spatial (geographic/coordinate) data in a resource.
     Returns column names, detected types, and spatial characteristics.
@@ -707,7 +707,7 @@ def get_temporal_extent(
         if pd.api.types.is_datetime64_any_dtype(series):
             parsed = series
         else:
-            parsed = pd.to_datetime(series, errors="coerce", infer_datetime_format=True)
+            parsed = pd.to_datetime(series, errors="coerce", format="mixed")
         
         valid = parsed.dropna()
         
