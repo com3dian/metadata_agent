@@ -8,6 +8,7 @@ from typing import Any
 
 import pandas as pd
 
+from src.config import LLM_PROVIDER, PLANNING_TEMPERATURE, get_model_name
 from src.context import create_context
 from src.orchestrator import Orchestrator
 from src.standards import METADATA_STANDARDS, load_metadata_standard
@@ -100,7 +101,12 @@ def generate_metadata(
         dataset_name = Path(file_name).stem
         metadata_standard = load_metadata_standard(standard_name)
         context = create_context(temp_path, name=dataset_name)
-        orchestrator = Orchestrator(topology_name=topology_name)
+        orchestrator = Orchestrator(
+            topology_name="fast",
+            model_name=get_model_name(),
+            temperature=PLANNING_TEMPERATURE,
+            provider=LLM_PROVIDER,
+    )
 
         result = orchestrator.run(
             source=context,
