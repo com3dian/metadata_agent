@@ -11,9 +11,12 @@ RUFF := $(VENV)/bin/ruff
 help:
 	@printf '%s\n' \
 		'Available targets:' \
-		'  make uv-setup   - create the uv virtual environment' \
+		'  make uv-setup   - create the uv virtual environment and install only basic dependencies' \
 		'  make activate   - print the command to activate the virtual environment' \
-		'  make uv-clean   - clean the uv virtual environment and related files'
+		'  make uv-clean   - clean the uv virtual environment and uv lock, keep pyproject.toml' \
+		'  make install-docs - build packages from . and install basic dependencies plus those under the docs group' \
+		'  make docs       - build the documentation and open it in the browser' \
+		'  make docs-clean - clean the generated documentation files' \
 
 
 # Virtual environment setup and management
@@ -22,7 +25,7 @@ uv-setup:
 		$(UV) init --python $(PYTHON_VERSION); \
 	fi
 	$(UV) python pin $(PYTHON_VERSION)
-	$(UV) sync
+	$(UV) sync --no-default-groups 	# install dependencies without dev dependencies
 
 activate: 
 	@printf '%s\n' \
@@ -31,14 +34,13 @@ activate:
 uv-clean: 
 	deactivate 2>/dev/null || true
 	rm -rf $(VENV)
-	rm -rf pyproject.toml
 	rm -rf uv.lock
 
 
 # Auto documentation
 install-docs:
 	$(UV) pip install -e .
-	$(UV) sync --group docs
+	$(UV) sync --no-default-groups --group docs  # install dependencies for docs group
 
 docs: install-docs
 	$(UV) run sphinx-build -b html docs docs/_build/html
