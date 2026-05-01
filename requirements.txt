@@ -7,5 +7,14 @@ python-dotenv
 pandas
 ruff  # For linting
 
+<<<<<<< HEAD
 # Demo
 streamlit
+=======
+# sphinx
+sphinx
+pydata-sphinx-theme
+myst-parser
+sphinx-copybutton
+sphinx-autoapi
+>>>>>>> origin/main
