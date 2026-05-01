@@ -22,7 +22,7 @@ uv-setup:
 		$(UV) init --python $(PYTHON_VERSION); \
 	fi
 	$(UV) python pin $(PYTHON_VERSION)
-	$(UV) sync
+	$(UV) sync --no-default-groups 	# install dependencies without dev dependencies
 
 activate: 
 	@printf '%s\n' \
@@ -31,14 +31,13 @@ activate:
 uv-clean: 
 	deactivate 2>/dev/null || true
 	rm -rf $(VENV)
-	rm -rf pyproject.toml
 	rm -rf uv.lock
 
 
 # Auto documentation
 install-docs:
 	$(UV) pip install -e .
-	$(UV) sync --group docs
+	$(UV) sync --no-default-groups --group docs  # install dependencies for docs group
 
 docs: install-docs
 	$(UV) run sphinx-build -b html docs docs/_build/html
