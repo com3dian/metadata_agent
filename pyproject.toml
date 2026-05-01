@@ -1,11 +1,7 @@
 [project]
 name = "metadata-agent"
 version = "0.1.0"
-<<<<<<< HEAD
-description = "Add your description here"
-=======
 description = "An agentic generative (LLM-based) tool for extracting metadata from datasets."
->>>>>>> upstream/main
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
