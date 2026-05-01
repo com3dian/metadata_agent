@@ -11,10 +11,10 @@ RUFF := $(VENV)/bin/ruff
 help:
 	@printf '%s\n' \
 		'Available targets:' \
-		'  make uv-setup   - create the uv virtual environment and install only default dependencies' \
+		'  make uv-setup   - create the uv virtual environment and install only basic dependencies' \
 		'  make activate   - print the command to activate the virtual environment' \
-		'  make uv-clean   - clean the uv virtual environment and related files' \
-		'  make install-docs - build packages from . and install default dependencies plus those under the docs group' \
+		'  make uv-clean   - clean the uv virtual environment and uv lock, keep pyproject.toml' \
+		'  make install-docs - build packages from . and install basic dependencies plus those under the docs group' \
 		'  make docs       - build the documentation and open it in the browser' \
 		'  make docs-clean - clean the generated documentation files' \
 
