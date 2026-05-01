@@ -6,18 +6,27 @@ PYTHON-VERSION := 3.12
 PYTHON := $(VENV)/bin/python
 RUFF := $(VENV)/bin/ruff
 
-.PHONY: help setup sync lock run test lint format check clean
+.PHONY: help uv-setup uv-clean activate install-docs docs docs-clean
 
 help:
 	@printf '%s\n' \
 		'Available targets:' \
-		'  make first-setup   - create the uv virtual environment' \
+		'  make uv-setup   - create the uv virtual environment' \
+		'  make activate   - print the command to activate the virtual environment' \
+		'  make uv-clean   - clean the uv virtual environment and related files'
 
-uv-setup: 
-	uv init --python $(PYTHON-VERSION)
-	uv python pin $(PYTHON-VERSION)
-	uv add -r requirements.txt
-	uv sync
+
+# Virtual environment setup and management
+uv-setup:
+	@if [ ! -f pyproject.toml ]; then \
+		$(UV) init --python $(PYTHON_VERSION); \
+	fi
+	$(UV) python pin $(PYTHON_VERSION)
+	$(UV) sync
+
+activate: 
+	@printf '%s\n' \
+		'source $(VENV)/bin/activate'
 
 uv-clean: 
 	deactivate 2>/dev/null || true
@@ -25,6 +34,15 @@ uv-clean:
 	rm -rf pyproject.toml
 	rm -rf uv.lock
 
-activate: 
-	@printf '%s\n' \
-		'source $(VENV)/bin/activate'
+
+# Auto documentation
+install-docs:
+	$(UV) pip install -e .
+	$(UV) sync --group docs
+
+docs: install-docs
+	$(UV) run sphinx-build -b html docs docs/_build/html
+	open docs/_build/html/index.html
+
+docs-clean:
+	rm -rf docs/_build docs/generated
