@@ -2,29 +2,33 @@ SHELL := /bin/sh
 
 UV := uv
 VENV := .venv
-PYTHON-VERSION := 3.12
+PYTHON-VERSION := 3.11
 PYTHON := $(VENV)/bin/python
 RUFF := $(VENV)/bin/ruff
 
-.PHONY: help uv-setup uv-clean activate install-docs docs docs-clean
+.PHONY: help uv-setup uv-clean activate install-docs docs docs-clean lint compile test ci
 
 help:
 	@printf '%s\n' \
 		'Available targets:' \
-		'  make uv-setup   - create the uv virtual environment and install only default dependencies' \
+		'  make uv-setup   - create the uv virtual environment and install only basic dependencies' \
 		'  make activate   - print the command to activate the virtual environment' \
-		'  make uv-clean   - clean the uv virtual environment and related files' \
-		'  make install-docs - build packages from . and install default dependencies plus those under the docs group' \
+		'  make uv-clean   - clean the uv virtual environment and uv lock, keep pyproject.toml' \
+		'  make install-docs - build packages from . and install basic dependencies plus those under the docs group' \
 		'  make docs       - build the documentation and open it in the browser' \
 		'  make docs-clean - clean the generated documentation files' \
+		'  make lint       - run ruff linter on the codebase' \
+		'  make compile    - compile the source code to check for syntax errors' \
+		'  make test       - run unit tests' \
+		'  make ci         - run lint, compile, and test for continuous integration'
 
 
 # Virtual environment setup and management
 uv-setup:
 	@if [ ! -f pyproject.toml ]; then \
-		$(UV) init --python $(PYTHON_VERSION); \
+		$(UV) init --python $(PYTHON-VERSION); \
 	fi
-	$(UV) python pin $(PYTHON_VERSION)
+	$(UV) python pin $(PYTHON-VERSION)
 	$(UV) sync --no-default-groups 	# install dependencies without dev dependencies
 
 activate: 
@@ -48,3 +52,24 @@ docs: install-docs
 
 docs-clean:
 	rm -rf docs/_build docs/generated
+
+
+install-demo:
+	$(UV) sync --no-default-groups --group demo  # install dependencies for demo group
+	
+demo: install-demo
+	$(UV) run streamlit run demo/pages/metadata_generation.py
+
+lint:
+	$(UV) run ruff check .
+
+compile:
+	$(UV) run python -m compileall src demo tests
+
+test:
+	$(UV) run python -m unittest discover -s tests -p 'test*.py'
+
+ci-install:
+	$(UV) sync --locked --no-default-groups
+
+ci: lint compile test
