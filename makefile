@@ -6,7 +6,7 @@ PYTHON-VERSION := 3.12
 PYTHON := $(VENV)/bin/python
 RUFF := $(VENV)/bin/ruff
 
-.PHONY: help uv-setup uv-clean activate install-docs docs docs-clean
+.PHONY: help uv-setup uv-clean activate install-docs docs docs-clean lint compile test ci
 
 help:
 	@printf '%s\n' \
@@ -17,14 +17,18 @@ help:
 		'  make install-docs - build packages from . and install basic dependencies plus those under the docs group' \
 		'  make docs       - build the documentation and open it in the browser' \
 		'  make docs-clean - clean the generated documentation files' \
+		'  make lint       - run ruff linter on the codebase' \
+		'  make compile    - compile the source code to check for syntax errors' \
+		'  make test       - run unit tests' \
+		'  make ci         - run lint, compile, and test for continuous integration'
 
 
 # Virtual environment setup and management
 uv-setup:
 	@if [ ! -f pyproject.toml ]; then \
-		$(UV) init --python $(PYTHON_VERSION); \
+		$(UV) init --python $(PYTHON-VERSION); \
 	fi
-	$(UV) python pin $(PYTHON_VERSION)
+	$(UV) python pin $(PYTHON-VERSION)
 	$(UV) sync --no-default-groups 	# install dependencies without dev dependencies
 
 activate: 
@@ -55,3 +59,17 @@ install-demo:
 	
 demo: install-demo
 	$(UV) run streamlit run demo/pages/metadata_generation.py
+
+lint:
+	$(UV) run ruff check .
+
+compile:
+	$(UV) run python -m compileall src demo tests
+
+test:
+	$(UV) run python -m unittest discover -s tests -p 'test*.py'
+
+ci-install:
+	$(UV) sync --locked --no-default-groups
+	
+ci: compile test
