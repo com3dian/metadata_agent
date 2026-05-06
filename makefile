@@ -2,7 +2,7 @@ SHELL := /bin/sh
 
 UV := uv
 VENV := .venv
-PYTHON-VERSION := 3.12
+PYTHON-VERSION := 3.11
 PYTHON := $(VENV)/bin/python
 RUFF := $(VENV)/bin/ruff
 
@@ -71,5 +71,5 @@ test:
 
 ci-install:
 	$(UV) sync --locked --no-default-groups
-	
+
 ci: compile test
