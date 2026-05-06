@@ -29,7 +29,7 @@ target-version = "py312"
 
 include = [
   "demo/**/*.py",
-  "scratch/**/*.py",
+  "examples/**/*.py",
   "tests/**/*.py",
 ]
 

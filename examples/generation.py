@@ -54,7 +54,7 @@ result = executor.execute(
 
 # 5. Get metadata
 metadata_output = result.final_workspace['metadata_output']
-output_dir = Path("scratch/output")
+output_dir = Path(os.getenv("OUTPUT_DIR") or "output")
 output_dir.mkdir(parents=True, exist_ok=True)
 with (output_dir / f"metadata_{context.name}.json").open("w", encoding="utf-8") as f:
     json.dump(metadata_output, f, ensure_ascii=False, indent=2, default=str)
