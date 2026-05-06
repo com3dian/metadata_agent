@@ -72,4 +72,4 @@ test:
 ci-install:
 	$(UV) sync --locked --no-default-groups
 
-ci: compile test
+ci: lint compile test

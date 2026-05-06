@@ -23,6 +23,22 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+include = [
+  "demo/**/*.py",
+  "scratch/**/*.py",
+  "tests/**/*.py",
+]
+
+exclude = [
+  ".git",
+  ".venv",
+  "notebooks",
+]
+
 [dependency-groups]
 demo = [
     "streamlit>=1.57.0",
