@@ -4,10 +4,11 @@ import os
 import tempfile
 from io import BytesIO
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import pandas as pd
 
+from src.config import LLM_PROVIDER, PLANNING_TEMPERATURE, get_model_name
 from src.context import create_context
 from src.orchestrator import Orchestrator
 from src.standards import METADATA_STANDARDS, load_metadata_standard
@@ -49,7 +50,7 @@ def uploaded_file_key(file_bytes: bytes, standard_name: str) -> str:
     return f"{digest}:{standard_name}"
 
 
-def load_preview(file_name: str, file_bytes: bytes, rows: int = 25) -> pd.DataFrame:
+def load_preview(file_name: str, file_bytes: bytes, rows: int = 5) -> pd.DataFrame:
     """Load the first rows of a CSV or TSV upload for preview display.
 
     Args:
@@ -69,6 +70,7 @@ def generate_metadata(
     file_bytes: bytes,
     standard_name: str,
     topology_name: str = "default",
+    progress_callback: Callable[[str, Any | None], None] | None = None,
 ) -> dict[str, Any]:
     """Run metadata extraction for an uploaded file and return JSON-friendly output.
 
@@ -81,6 +83,8 @@ def generate_metadata(
         file_bytes: Raw bytes from the uploaded file.
         standard_name: Name of the metadata standard to use.
         topology_name: Name of the execution topology to use.
+        progress_callback: Optional callback that receives intermediate stage
+            names and JSON-friendly payloads for UI display.
 
     Returns:
         The extraction result converted to JSON-friendly values.
@@ -100,16 +104,41 @@ def generate_metadata(
         dataset_name = Path(file_name).stem
         metadata_standard = load_metadata_standard(standard_name)
         context = create_context(temp_path, name=dataset_name)
-        orchestrator = Orchestrator(topology_name=topology_name)
+        _publish_progress(progress_callback, "context_created", context.to_dict())
 
-        result = orchestrator.run(
-            source=context,
+        orchestrator = Orchestrator(
+            topology_name=topology_name,
+            model_name=get_model_name(),
+            temperature=PLANNING_TEMPERATURE,
+            provider=LLM_PROVIDER,
+        )
+
+        plan = orchestrator.generate_plan(
+            context=context,
+            metadata_standard=metadata_standard,
+        )
+        if plan is None:
+            raise RuntimeError("Metadata agent did not return a plan.")
+
+        plan_steps = plan.to_dict_list()
+        _publish_progress(progress_callback, "plan_generated", plan_steps)
+
+        if not orchestrator._validate_plan(plan, context):
+            raise RuntimeError("Generated metadata plan failed validation.")
+
+        result = orchestrator.execute_plan(
+            plan=plan,
+            context=context,
             metadata_standard=metadata_standard,
             metadata_standard_name=standard_name,
         )
         if result is None:
             raise RuntimeError("Metadata agent did not return a result.")
-        return _to_displayable(result)
+
+        displayable_result = _to_displayable(result)
+        displayable_result["generated_plan"] = plan_steps
+        _publish_progress(progress_callback, "execution_complete", displayable_result)
+        return displayable_result
     finally:
         try:
             os.unlink(temp_path)
@@ -139,10 +168,23 @@ def execution_details(result: dict[str, Any]) -> dict[str, Any]:
         A dictionary with context, resource metadata, and relationship details.
     """
     return {
+        "generated_plan": result.get("generated_plan"),
+        "step_results": result.get("step_results"),
+        "final_workspace": result.get("final_workspace"),
         "context_info": result.get("context_info"),
         "resource_metadata": result.get("resource_metadata"),
         "relationships": result.get("relationships"),
     }
+
+
+def _publish_progress(
+    progress_callback: Callable[[str, Any | None], None] | None,
+    stage: str,
+    payload: Any | None = None,
+) -> None:
+    """Publish JSON-friendly intermediate workflow output to the UI."""
+    if progress_callback is not None:
+        progress_callback(stage, _to_displayable(payload))
 
 
 def _write_upload_to_temp(file_name: str, file_bytes: bytes) -> str:

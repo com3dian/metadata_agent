@@ -83,10 +83,29 @@ def run_generation(
         JSON-friendly metadata generation result.
     """
     progress = st.status("Generating metadata", expanded=True)
+
+    def show_progress(stage: str, payload: Any | None) -> None:
+        if stage == "context_created":
+            progress.write("Execution context created.")
+            with progress:
+                with st.expander("Context"):
+                    st.json(payload)
+        elif stage == "plan_generated":
+            progress.write("Execution plan generated.")
+            with progress:
+                with st.expander("Generated plan"):
+                    st.json(payload)
+        elif stage == "execution_complete":
+            progress.write("Plan execution complete.")
+
     try:
         progress.write("File uploaded and staged for analysis.")
-        progress.write("Running the metadata agent.")
-        result = generate_metadata(uploaded_file.name, file_bytes, standard_name)
+        result = generate_metadata(
+            uploaded_file.name,
+            file_bytes,
+            standard_name,
+            progress_callback=show_progress,
+        )
         st.session_state.metadata_generation_results[file_key] = result
         progress.update(label="Metadata generated", state="complete")
         return result
@@ -109,6 +128,30 @@ def render_result(result: dict[str, Any]) -> None:
         st.json(metadata)
     else:
         st.warning("No final metadata artifact was found in the result.")
+
+    plan = result.get("generated_plan") or []
+    if plan:
+        with st.expander("Generated plan", expanded=True):
+            st.json(plan)
+
+    step_results = result.get("step_results") or []
+    if step_results:
+        st.subheader("Execution steps")
+        st.dataframe(
+            [
+                {
+                    "step": step.get("step_index", 0) + 1,
+                    "task": step.get("task"),
+                    "player": step.get("player_role"),
+                    "success": step.get("success"),
+                    "artifacts": ", ".join((step.get("artifacts") or {}).keys()),
+                    "error": step.get("error"),
+                }
+                for step in step_results
+            ],
+            use_container_width=True,
+            hide_index=True,
+        )
 
     with st.expander("Execution details"):
         col1, col2, col3 = st.columns(3)
