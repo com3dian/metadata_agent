@@ -1,4 +1,4 @@
-from src.orchestrator import Orchestrator, run_metadata_extraction
+from src.orchestrator import Orchestrator
 from src.standards import METADATA_STANDARDS
 from src.context.context_factory import create_context
 from src.orchestrator.plan_executor import PlanExecutor
