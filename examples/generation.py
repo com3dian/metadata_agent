@@ -4,12 +4,20 @@ from src.context.context_factory import create_context
 from src.orchestrator.plan_executor import PlanExecutor
 from src.tools.context_tools import register_context
 from src.config import LLM_PROVIDER, PLANNING_TEMPERATURE, get_model_name
-from pprint import pprint
+from pprint import pformat
 import json
+import logging
 from pathlib import Path
 import os
 from time import perf_counter
 from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+handler = logging.StreamHandler()
+handler.setFormatter(logging.Formatter("%(message)s"))
+logger.addHandler(handler)
+logger.propagate = False
 
 load_dotenv()
 
@@ -19,27 +27,28 @@ step_start = process_start
 
 def log_step_timing(step_name: str, start: float) -> float:
     now = perf_counter()
-    print(f"[timer] {step_name}: {now - start:.3f}s")
+    logger.info("[timer] %s: %.3fs", step_name, now - start)
     return now
 
 
 # 1. Define source
 source = {"data": os.getenv("DATA_FILE")}
+topology_name = os.getenv("TOPOLOGY_NAME", "default")
 step_start = log_step_timing("Define source", step_start)
 
 # 2. Create context
 context = create_context(source=source, name="my_dataset")
 step_start = log_step_timing("Create context", step_start)
 
-print("------------------- Starting Plan Generation and Execution -------------------")
-print(f"Data source: {source['data']}")
-print(f"Model name: {get_model_name()}")
-print(f"LLM Provider: {LLM_PROVIDER}")
-print(f"Planning temperature: {PLANNING_TEMPERATURE}")
-
+logger.info("------------------- Starting Plan Generation and Execution -------------------")
+logger.info("Data source: %s", source["data"])
+logger.info("Topology name: %s", topology_name)
+logger.info("Model name: %s", get_model_name())
+logger.info("LLM Provider: %s", LLM_PROVIDER)
+logger.info("Planning temperature: %s", PLANNING_TEMPERATURE)
 # 3. Generate plan
 orchestrator = Orchestrator(
-    topology_name="fast",
+    topology_name=topology_name,
     model_name=get_model_name(),
     temperature=PLANNING_TEMPERATURE,
     provider=LLM_PROVIDER,
@@ -49,15 +58,15 @@ plan = orchestrator.generate_plan(
     metadata_standard=METADATA_STANDARDS["spatial_ecological"]
 )
 step_start = log_step_timing("Generate plan", step_start)
-print("Generated Plan:")
-pprint(plan)
+logger.info("Generated Plan:")
+logger.info("%s", pformat(plan))
 
 
 # 4. Execute
 context_key = "ctx_my_dataset"
 register_context(context_key, context)
 
-executor = PlanExecutor(topology_name="fast")
+executor = PlanExecutor(topology_name=topology_name)
 result = executor.execute(
     plan=plan,
     context=context,
@@ -74,8 +83,8 @@ output_dir.mkdir(parents=True, exist_ok=True)
 with (output_dir / f"metadata_{context.name}.json").open("w", encoding="utf-8") as f:
     json.dump(metadata_output, f, ensure_ascii=False, indent=2, default=str)
 
-print("Extracted Metadata:")
-print(metadata_output)
+logger.info("Extracted Metadata:")
+logger.info("%s", metadata_output)
 step_start = log_step_timing("Write metadata", step_start)
-print(f"[timer] Whole process: {step_start - process_start:.3f}s")
-print("------------------- End of Execution -------------------")
+logger.info("[timer] Whole process: %.3fs", step_start - process_start)
+logger.info("------------------- End of Execution -------------------")
