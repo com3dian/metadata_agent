@@ -10,6 +10,9 @@ make demo
 
 ## Folder roles
 
+### `demo_app.py`
+Streamlit entry point that configures and launches the demo app.
+
 ### `demo/`
 
 Everything related to the web demo.

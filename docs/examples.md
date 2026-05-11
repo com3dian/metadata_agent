@@ -36,13 +36,13 @@ Output:
 ```python
 {
   "title": "my_dataset",
-  "description": "Dataset containing biotic measurements including abundance and fine dead matter per square meter.",
-  "subject": "Biotic measurements",
+  "description": "Dataset containing biological abundance and aboveground fine dead matter measurements.",
+  "subject": "Biological abundance and aboveground fine dead matter",
   "spatial_coverage": null,
   "spatial_resolution": null,
   "temporal_coverage": null,
   "temporal_resolution": null,
-  "methods": null,
+  "methods": "Data collected through sampling methods with identification using SIBES IDs.",
   "format": "CSV"
 }
 ```
