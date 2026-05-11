@@ -28,7 +28,7 @@ python -m examples.completion
 
 
 ```bash
-python -m scratch.generation
+python -m examples.generation
 ```
 
 
@@ -47,3 +47,7 @@ Output:
 }
 ```
 
+You can get the full log info by adding the following to `.env`: 
+```
+LOG_MODE = full
+```

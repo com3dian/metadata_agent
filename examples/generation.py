@@ -19,14 +19,27 @@ import os
 from time import perf_counter
 from dotenv import load_dotenv
 
-# Configure a simple console logger so the example shows progress without any
-# project-specific logging setup.
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-handler = logging.StreamHandler()
-handler.setFormatter(logging.Formatter("%(message)s"))
-logger.addHandler(handler)
-logger.propagate = False
+# Two logging modes are available: 
+# "full" prints all logs including those used in other modules; 
+# "self-contained" prints only the message content inside this script. 
+LOG_MODE = os.getenv("LOG_MODE", "self-contained")
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+
+if LOG_MODE == "full":
+    logging.basicConfig(
+        level=getattr(logging, LOG_LEVEL),
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    )
+    logger = logging.getLogger(__name__)
+else:
+    logger = logging.getLogger(__name__)
+    logger.setLevel(getattr(logging, LOG_LEVEL))
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    logger.handlers.clear()
+    logger.addHandler(handler)
+    logger.propagate = False
+
 
 # Load DATA_FILE, TOPOLOGY_NAME, OUTPUT_DIR, and provider/model settings from
 # the local environment before building the source and orchestrator.
@@ -39,7 +52,7 @@ step_start = process_start
 def log_step_section(step_number: int, step_name: str) -> None:
     """Print a visible section header for each major example step."""
     logger.info("")
-    logger.info("------------------- Step %d: %s -------------------", step_number, step_name)
+    logger.info("------------------- PART %d: %s -------------------", step_number, step_name)
 
 
 def log_step_timing(step_name: str, start: float) -> float:
