@@ -51,9 +51,6 @@ Available topologies:
 from typing import Dict, Any
 
 
-# ===================================================================
-#  EXECUTION TOPOLOGY DEFINITIONS
-# ===================================================================
 EXECUTION_TOPOLOGIES: Dict[str, Dict[str, Any]] = {
     "default": {
         "description": (
