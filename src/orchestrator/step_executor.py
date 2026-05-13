@@ -2,14 +2,16 @@
 Step-level execution with parallel players and debate.
 
 This module implements the core logic for executing a single plan step:
+
 1. Spawn multiple players (based on topology)
 2. Each player executes the task in parallel
 3. Players debate (critique and revise) their results
 4. A synthesizer consolidates the final result
 
-Uses the unified ExecutionContext abstraction for all data access.
+Uses the unified :class:`~src.context.ExecutionContext` abstraction for all data access.
 
-The execution flow is:
+The execution flow is::
+
     execute_parallel → critique → revise → [loop or synthesize]
 """
 import logging

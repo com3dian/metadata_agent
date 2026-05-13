@@ -2,13 +2,15 @@
 Plan Executor - Orchestrates the execution of a complete plan.
 
 This module provides the PlanExecutor class that:
+
 1. Takes a generated plan and execution topology
 2. Iterates through each step sequentially
 3. For each step, spawns parallel players and runs debates
 4. Accumulates artifacts in a workspace
 5. Produces the final metadata output
 
-Uses the unified ExecutionContext abstraction for all data access.
+Uses the unified :class:`~src.context.ExecutionContext` abstraction for all data
+access. 
 """
 import logging
 from typing import Dict, Any, List, Optional, Type
