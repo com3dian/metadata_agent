@@ -11,39 +11,31 @@ from src.standards import METADATA_STANDARDS
 from src.context.context_factory import create_context
 from src.orchestrator.plan_executor import PlanExecutor
 from src.tools.context_tools import register_context
-from src.config import LLM_PROVIDER, PLANNING_TEMPERATURE, get_model_name
+from src import config as agent_config
+from examples import config as example_config
 import json
 import logging
 from pathlib import Path
-import os
 from time import perf_counter
-from dotenv import load_dotenv
 
 # Two logging modes are available: 
 # "full" prints all logs including those used in other modules; 
 # "self-contained" prints only the message content inside this script. 
-LOG_MODE = os.getenv("LOG_MODE", "self-contained")
-LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
-
-if LOG_MODE == "full":
+if example_config.LOG_MODE == "full":
     logging.basicConfig(
-        level=getattr(logging, LOG_LEVEL),
+        level=getattr(logging, example_config.LOG_LEVEL),
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
     logger = logging.getLogger(__name__)
 else:
     logger = logging.getLogger(__name__)
-    logger.setLevel(getattr(logging, LOG_LEVEL))
+    logger.setLevel(getattr(logging, example_config.LOG_LEVEL))
     handler = logging.StreamHandler()
     handler.setFormatter(logging.Formatter("%(message)s"))
     logger.handlers.clear()
     logger.addHandler(handler)
     logger.propagate = False
 
-
-# Load DATA_FILE, TOPOLOGY_NAME, OUTPUT_DIR, and provider/model settings from
-# the local environment before building the source and orchestrator.
-load_dotenv()
 
 process_start = perf_counter()
 step_start = process_start
@@ -61,12 +53,17 @@ def log_step_timing(step_name: str, start: float) -> float:
     logger.info("[timer] %s: %.3fs", step_name, now - start)
     return now
 
+logger.info("**************************** Start of Workflow ****************************")
 
 # 1. Define the input source. DATA_FILE should point at the dataset that will be
 # inspected when the context is created.
 log_step_section(1, "Define source")
-source = {"data": os.getenv("DATA_FILE")}
-topology_name = os.getenv("TOPOLOGY_NAME", "default")
+source = {"data": example_config.DATA_FILE}
+topology_name = agent_config.DEFAULT_TOPOLOGY
+
+logger.info("%s", agent_config.get_config_summary())
+logger.info("%s", example_config.config_summary())
+
 step_start = log_step_timing("Define source", step_start)
 
 # 2. Create a context object. The context wraps the source data and gives the
@@ -75,12 +72,6 @@ log_step_section(2, "Create context")
 context = create_context(source=source, name="my_dataset")
 step_start = log_step_timing("Create context", step_start)
 
-logger.info("------------------- Starting Plan Generation and Execution -------------------")
-logger.info("Data source: %s", source["data"])
-logger.info("Topology name: %s", topology_name)
-logger.info("Model name: %s", get_model_name())
-logger.info("LLM Provider: %s", LLM_PROVIDER)
-logger.info("Planning temperature: %s", PLANNING_TEMPERATURE)
 
 # 3. Ask the orchestrator to generate a metadata extraction plan for the target
 # metadata standard. The selected topology controls which planning strategy is
@@ -88,9 +79,9 @@ logger.info("Planning temperature: %s", PLANNING_TEMPERATURE)
 log_step_section(3, "Generate plan")
 orchestrator = Orchestrator(
     topology_name=topology_name,
-    model_name=get_model_name(),
-    temperature=PLANNING_TEMPERATURE,
-    provider=LLM_PROVIDER,
+    model_name=agent_config.get_model_name(),
+    temperature=agent_config.PLANNING_TEMPERATURE,
+    provider=agent_config.LLM_PROVIDER,
 )
 plan = orchestrator.generate_plan(
     context=context,
@@ -123,7 +114,7 @@ step_start = log_step_timing("Execute plan", step_start)
 # 5. Collect and persist the final metadata output produced by the plan.
 log_step_section(5, "Write metadata")
 metadata_output = result.final_workspace['metadata_output']
-output_dir = Path(os.getenv("OUTPUT_DIR") or "output")
+output_dir = Path(example_config.OUTPUT_DIR)
 output_dir.mkdir(parents=True, exist_ok=True)
 with (output_dir / f"metadata_{context.name}.json").open("w", encoding="utf-8") as f:
     json.dump(metadata_output, f, ensure_ascii=False, indent=2, default=str)
@@ -132,4 +123,4 @@ logger.info("Extracted Metadata:")
 logger.info("%s", json.dumps(metadata_output, ensure_ascii=False, indent=2, default=str))
 step_start = log_step_timing("Write metadata", step_start)
 logger.info("[timer] Whole process: %.3fs", step_start - process_start)
-logger.info("------------------- End of Execution -------------------")
+logger.info("**************************** End of Workflow ****************************")
