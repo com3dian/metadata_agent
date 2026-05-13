@@ -1,15 +1,17 @@
 """
 Unified Player class for the multi-agent system.
 
-A Player is a self-contained agent that can:
-1. Execute tasks using tools
-2. Participate in debates (generate work, critique, revise)
-3. Synthesize results from multiple sources
+A ``Player`` is a self-contained agent that can:
+
+    1. Execute tasks using tools.
+    2. Participate in debates by generating work, critiquing, and revising.
+    3. Synthesize results from multiple sources.
 
 Each player has a role/persona defined by a prompt, and a set of tools
 it can use to accomplish tasks.
 
-Uses the unified ExecutionContext abstraction for all data access.
+Uses the unified :class:`~src.context.ExecutionContext` abstraction for all data
+access.
 """
 from typing import List, Dict, Any, Optional, Union, Type
 
