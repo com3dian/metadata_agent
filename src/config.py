@@ -1,13 +1,59 @@
 """
 Centralized configuration for the Metadata Agent.
 
-All configurable settings should be defined here.
-You can also override these via environment variables.
+This module loads ``.env`` values to configure provider selection, model behavior, and
+execution defaults. Define values in a local ``.env`` file for development or set
+them directly in the shell/hosting environment for deployments.
 
-Supported LLM Providers:
-- "google": Google Gemini models (requires GOOGLE_API_KEY)
-- "surf": Custom OpenAI-compatible endpoint (requires SURF_API_BASE and optionally SURF_API_KEY)
-- "openai": OpenAI models (requires OPENAI_API_KEY)
+Configuration Options
+---------------------
+
+``LLM_PROVIDER``
+    Selects the backend provider. Supported values are ``"google"``,
+    ``"surf"``, and ``"openai"``. Defaults to ``"google"``.
+``LLM_MODEL``
+    Optional explicit model name. If unset, the selected provider's default
+    model from :data:`PROVIDER_CONFIGS` is used.
+``LLM_TEMPERATURE_PLANNING``
+    Temperature used by planning steps. Defaults to ``0.0``.
+``LLM_TEMPERATURE_PLAYER``
+    Temperature used by player/creative steps. Defaults to ``0.3``.
+``DEFAULT_TOPOLOGY``
+    Default execution topology name. Defaults to ``"default"``.
+``DEFAULT_METADATA_STANDARD``
+    Default metadata standard. Defaults to ``"basic"``.
+
+Provider Credentials and Endpoints
+----------------------------------
+
+``google``
+    Requires ``GOOGLE_API_KEY``. Default model is ``"gemini-2.5-flash"``.
+``surf``
+    Requires ``SURF_API_BASE`` and ``SURF_API_KEY`` for an OpenAI-compatible
+    custom endpoint such as vLLM or TGI. Default model is
+    ``"Qwen 2.5 Coder 32B Instruct AWQ"``.
+``openai``
+    Requires ``OPENAI_API_KEY``. Default model is ``"gpt-4o-mini"``.
+
+Runtime Overrides
+-----------------
+
+* Pass ``provider`` to :func:`create_llm` to override ``LLM_PROVIDER`` for one
+  call.
+* Pass ``model_name`` to :func:`create_llm` or :func:`get_model_name` to
+  override ``LLM_MODEL`` for one call.
+* Pass ``temperature`` to :func:`create_llm` to override the module's default
+  temperature constants for one model instance.
+
+Example ``.env`` file::
+
+    LLM_PROVIDER=surf
+    SURF_API_KEY=...
+    SURF_API_BASE={SURF_ENDPOINT_URL}
+    LLM_MODEL=Qwen 2.5 Coder 32B Instruct AWQ
+    LLM_TEMPERATURE_PLANNING=0.0
+    LLM_TEMPERATURE_PLAYER=0.3
+    DEFAULT_TOPOLOGY=default
 """
 import os
 from typing import Optional, Any
@@ -33,7 +79,7 @@ PROVIDER_CONFIGS = {
         "description": "Google Gemini models",
     },
     "surf": {
-        "default_model": "default-text-large",
+        "default_model": "Qwen 2.5 Coder 32B Instruct AWQ",
         "api_key_env": "SURF_API_KEY",
         "base_url_env": "SURF_API_BASE",
         "description": "Custom OpenAI-compatible endpoint (e.g., vLLM, TGI)",
@@ -97,11 +143,15 @@ DEFAULT_METADATA_STANDARD = os.getenv("DEFAULT_METADATA_STANDARD", "basic")
 def get_model_name(override: Optional[str] = None) -> str:
     """
     Get the model name to use.
-    
+
     Priority:
-    1. Override parameter
-    2. LLM_MODEL environment variable
-    3. Provider's default model
+
+    #. Override parameter.
+    #. ``LLM_MODEL`` environment variable.
+    #. Provider's default model.
+
+    :param override: Optional model name to use instead of configured defaults.
+    :returns: The resolved model name.
     """
     if override:
         return override
@@ -117,19 +167,15 @@ def create_llm(
     **kwargs
 ) -> Any:
     """
-    Factory function to create an LLM instance based on the configured provider.
-    
-    Args:
-        model_name: Model name (uses default if not specified)
-        temperature: LLM temperature
-        provider: Override the default provider
-        **kwargs: Additional arguments passed to the LLM constructor
-        
-    Returns:
-        LangChain chat model instance
-        
-    Raises:
-        ValueError: If provider is not supported or required config is missing
+    Create an LLM instance based on the configured provider.
+
+    :param model_name: Model name. Uses the configured default if omitted.
+    :param temperature: LLM temperature.
+    :param provider: Provider to use instead of :data:`LLM_PROVIDER`.
+    :param kwargs: Additional arguments passed to the LLM constructor.
+    :returns: LangChain chat model instance.
+    :raises ValueError: If the provider is unsupported or required
+        configuration is missing.
     """
     provider = provider or LLM_PROVIDER
     model = get_model_name(model_name)
@@ -207,13 +253,13 @@ def get_config_summary() -> str:
     api_key_set = bool(os.getenv(api_key_env)) if api_key_env else False
     
     return f"""
-Configuration Summary:
-----------------------
-LLM Provider: {LLM_PROVIDER} ({provider_config.get('description', 'Unknown')})
-LLM Model: {model}
-Planning Temperature: {PLANNING_TEMPERATURE}
-Player Temperature: {PLAYER_TEMPERATURE}
-Default Topology: {DEFAULT_TOPOLOGY}
-Default Metadata Standard: {DEFAULT_METADATA_STANDARD}
-API Key ({api_key_env}): {'Set' if api_key_set else 'Not Set'}
-"""
+        Agent Configuration:
+        ----------------------
+        LLM Provider: {LLM_PROVIDER} ({provider_config.get('description', 'Unknown')})
+        LLM Model: {model}
+        Planning Temperature: {PLANNING_TEMPERATURE}
+        Player Temperature: {PLAYER_TEMPERATURE}
+        Default Topology: {DEFAULT_TOPOLOGY}
+        Default Metadata Standard: {DEFAULT_METADATA_STANDARD}
+        API Key ({api_key_env}): {'Set' if api_key_set else 'Not Set'}
+        """
