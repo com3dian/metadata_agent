@@ -17,7 +17,7 @@ from typing import Dict, Any, List, Optional, Type
 
 from pydantic import BaseModel
 
-from src.core.schemas import Plan, ExecutionResult, StepResult
+from src.core import ExecutionResult, Plan, StepResult
 from src.context import ExecutionContext
 from src.standards import get_schema_for_standard
 

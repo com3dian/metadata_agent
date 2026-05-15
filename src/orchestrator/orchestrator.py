@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional, Union
 
 from langchain_core.output_parsers import PydanticOutputParser
 
-from src.core.schemas import Plan, ExecutionResult
+from src.core import ExecutionResult, Plan
 
 from ..config import DEFAULT_TOPOLOGY, LLM_PROVIDER, create_llm
 from ..context import ContextType, ExecutionContext, create_context

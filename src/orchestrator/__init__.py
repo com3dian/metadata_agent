@@ -48,8 +48,14 @@ Typical usage::
 
 from .orchestrator import Orchestrator, run_metadata_extraction
 from .plan_executor import PlanExecutor, execute_plan
-from src.core.schemas import Plan, Task, StepResult, ExecutionResult
-from src.core.state import StepExecutionState, PlanExecutionState
+from src.core import (
+    ExecutionResult,
+    Plan,
+    PlanExecutionState,
+    StepExecutionState,
+    StepResult,
+    Task,
+)
 
 __all__ = [
     # Main classes

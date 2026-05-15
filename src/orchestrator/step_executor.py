@@ -20,7 +20,7 @@ from typing import Dict, Any, List, Optional, Type
 from pydantic import BaseModel
 from langgraph.graph import StateGraph, END
 
-from src.core.state import StepExecutionState, PlayerResult, DebateEntry
+from src.core import DebateEntry, PlayerResult, StepExecutionState
 from ..players import Player, create_player_from_config, PLAYER_CONFIGS
 from ..tools.context_tools import filter_tools_by_context_type
 
