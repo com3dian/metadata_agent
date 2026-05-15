@@ -4,8 +4,8 @@ classify context types based on the input data/files
 import os
 from typing import List
 
-from .base_context import ContextType
-from .registry import detect_type_from_extension, is_csv_type
+from src.context.base_context import ContextType
+from src.context.registry import detect_type_from_extension, is_csv_type
 
 
 def _single_multi_csv_classifier(path_list: List[str]) -> ContextType:

@@ -6,10 +6,10 @@ from typing import Union, List, Dict, Optional, Any
 from pathlib import Path
 import glob
 
-from .base_context import ExecutionContext, ContextType
-from .csv_context import CSVContext
-from .sqlite_context import SQLiteContext
-from .registry import detect_type_from_extension, is_csv_type
+from src.context.base_context import ContextType, ExecutionContext
+from src.context.csv_context import CSVContext
+from src.context.registry import detect_type_from_extension, is_csv_type
+from src.context.sqlite_context import SQLiteContext
 
 
 class ContextFactory:

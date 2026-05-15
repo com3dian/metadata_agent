@@ -1,7 +1,7 @@
 """Core schemas and execution state models."""
 
-from src.core.schemas import ExecutionResult, Plan, StepResult, Task
-from src.core.state import (
+from .schemas import ExecutionResult, Plan, StepResult, Task
+from .state import (
     DebateEntry,
     PlanExecutionState,
     PlayerResult,

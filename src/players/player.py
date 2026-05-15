@@ -19,7 +19,7 @@ from langchain_core.tools import BaseTool
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
-from ..config import PLAYER_TEMPERATURE, create_llm, LLM_PROVIDER
+from src.config import LLM_PROVIDER, PLAYER_TEMPERATURE, create_llm
 
 
 class Player:
