@@ -20,14 +20,14 @@ from time import perf_counter
 
 # Two logging modes are available: 
 # "full" prints all logs including those used in other modules; 
-# "self-contained" prints only the message content inside this script. 
+# "top" prints only the message content inside this script. 
 if example_config.LOG_MODE == "full":
     logging.basicConfig(
         level=getattr(logging, example_config.LOG_LEVEL),
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
     logger = logging.getLogger(__name__)
-else:
+elif example_config.LOG_MODE == "top":
     logger = logging.getLogger(__name__)
     logger.setLevel(getattr(logging, example_config.LOG_LEVEL))
     handler = logging.StreamHandler()
@@ -35,6 +35,8 @@ else:
     logger.handlers.clear()
     logger.addHandler(handler)
     logger.propagate = False
+else:
+    raise ValueError(f"Invalid LOG_MODE: {example_config.LOG_MODE}. Must be 'full' or 'top'.")
 
 
 process_start = perf_counter()
