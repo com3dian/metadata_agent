@@ -8,14 +8,18 @@ This file contains legacy tools that work directly with file paths.
 New code should use the DataSource-based tools in datasource_tools.py.
 
 Migration guide:
-    Old: from src.tools import pandas_tools
-         pandas_tools.get_row_count("./data.csv")
+    Old::
     
-    New: from src.tools import get_row_count, register_datasource
-         from src.datasource import create_datasource
-         ds = create_datasource("./data.csv")
-         register_datasource("my_ds", ds)
-         get_row_count("my_ds", "data")
+        from src.tools import pandas_tools
+        pandas_tools.get_row_count("./data.csv")
+    
+    New::
+
+        from src.tools import get_row_count, register_datasource
+        from src.datasource import create_datasource
+        ds = create_datasource("./data.csv")
+        register_datasource("my_ds", ds)
+        get_row_count("my_ds", "data")
 """
 import warnings
 
