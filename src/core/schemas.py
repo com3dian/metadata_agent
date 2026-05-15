@@ -2,6 +2,7 @@
 Core Pydantic schemas for the multi-agent system.
 
 This module defines the fundamental data structures:
+
 1. Task: A single, executable unit of work.
 2. Plan: A sequence of tasks with optional validation for data flow.
 3. StepResult / ExecutionResult: Standard execution outputs for orchestrations.
@@ -16,6 +17,14 @@ from pydantic import BaseModel, Field, validator
 class Task(BaseModel):
     """
     A single, executable step in the agent's plan.
+
+    Attributes:
+        task: A specific and single task to be performed, e.g., 'get_row_count'.
+        player: The name of the player role responsible for executing this task, e.g., 'data_analyst'.
+        rationale: The reasoning for why this step is necessary.
+        target_resources: List of resource names this step should operate on. Empty means all resources or context-level operation.
+        inputs: Maps a task's parameter names to the names of artifacts in the workspace that should be used as input.
+        outputs: A list of new artifact names that this step will produce and save to the workspace.
     """
 
     task: str = Field(
@@ -43,6 +52,9 @@ class Plan(BaseModel):
     """
     The complete, multi-step plan for the agent to execute.
     Includes validation to ensure logical consistency of task dependencies.
+
+    Attributes:
+        steps: The list of sequential tasks the agent should follow.
     """
 
     steps: List[Task] = Field(
@@ -97,6 +109,17 @@ class Plan(BaseModel):
 class StepResult(BaseModel):
     """
     The result of executing a single plan step.
+
+    Attributes:
+        step_index: The index of the step in the plan.
+        task: The task that was executed.
+        player_role: The player role that executed this step.
+        individual_results: Results from each player that worked on this step.
+        debate_rounds_completed: Number of debate rounds that were completed.
+        consolidated_result: The synthesized result after debate (string or Pydantic model).
+        artifacts: Artifacts produced by this step to add to workspace.
+        success: Whether the step completed successfully.
+        error: Error message if the step failed.
     """
 
     step_index: int = Field(description="The index of the step in the plan.")
@@ -128,6 +151,18 @@ class StepResult(BaseModel):
 class ExecutionResult(BaseModel):
     """
     The complete result of executing a plan.
+
+    Attributes:
+        plan_steps_count: Total number of steps in the plan.
+        steps_completed: Number of steps successfully completed.
+        step_results: Results from each step.
+        final_workspace: Final state of the workspace with all artifacts.
+        final_metadata: The final extracted metadata.
+        context_info: Information about the ExecutionContext used.
+        resource_metadata: Per-resource metadata, keyed by resource name.
+        relationships: Relationships between resources (from ExecutionContext).
+        success: Whether the entire plan executed successfully.
+        error: Error message if execution failed.
     """
 
     plan_steps_count: int = Field(description="Total number of steps in the plan.")
