@@ -95,6 +95,38 @@ class Player:
         
         This is the main execution method where the player uses its tools
         to accomplish a task from the plan.
+
+        Prompt used:
+            System:
+                You are {player_name}. {role_prompt}
+
+                You have access to the following tools:
+                {tool_descriptions}
+
+                Your task is to analyze the context and provide a detailed
+                response. When you need to use a tool, describe what you would
+                do and provide your analysis.
+
+                {context_info}
+
+                For multi-CSV contexts (multiple CSV resources), consider:
+                - How resources might relate to each other
+                - Common fields that could be foreign keys
+                - Data integrity across resources
+
+            Human:
+                Task: {task}
+
+                Target resources for this step: {target_resources}
+
+                Input context from previous steps:
+                {input_context}
+
+                Execute this task and provide a comprehensive response.
+                Include:
+                1. Your approach to the task
+                2. Any relevant observations or findings
+                3. The result of your analysis
         
         Args:
             task: The task description to execute
@@ -253,6 +285,25 @@ Execute this task and provide a comprehensive response. Include:
     ) -> str:
         """
         Generate initial work/analysis for a debate round.
+
+        Prompt:
+            System: You are {self.name}. {self.role_prompt}
+
+            You are participating in a multi-agent analysis of a context
+            (dataset, API, etc.). Your goal is to provide your unique
+            perspective and insights.
+
+            Human:
+                Task: {task}
+
+                Context: {context_name} ({context_type})
+                Resources: {resources}
+
+                Context and available information:
+                {context}
+
+                Provide your initial analysis. Be thorough and specific.
+                Focus on what you can contribute based on your role.
         
         Args:
             task: The task to work on
@@ -296,7 +347,6 @@ Focus on what you can contribute based on your role.""",
             "resources": ", ".join(context_info.get("resources", [])),
             "context": str(context),
         })
-    
     def critique_work(
         self,
         task: str,
@@ -304,6 +354,26 @@ Focus on what you can contribute based on your role.""",
     ) -> str:
         """
         Critique the work of other players.
+
+        Prompt:
+            System:
+                You are {self.name}. {self.role_prompt}
+
+                You are reviewing the work of other analysts. Provide constructive criticism
+                that helps improve the overall analysis. Be specific about what could be
+                improved, what's missing, or what might be incorrect.
+
+            Human:
+                Task: {task}
+
+                Work from other players to critique:
+                {other_work}
+
+                Provide your critique. Focus on:
+                1. Accuracy and correctness
+                2. Completeness
+                3. Clarity and specificity
+                4. Suggestions for improvement
         
         Args:
             task: The task being worked on
@@ -350,6 +420,25 @@ Provide your critique. Focus on:
     ) -> str:
         """
         Revise work based on critiques received.
+
+        Prompt:
+            System:
+                You are {self.name}. {self.role_prompt}
+
+                You are revising your work based on feedback from other analysts.
+                Incorporate valid criticisms while maintaining your unique perspective.
+
+            Human:
+                Task: {task}
+
+                Your original work:
+                {original_work}
+
+                Critiques received:
+                {critiques}
+
+                Provide your revised analysis. Address the valid points raised in the critiques
+                while maintaining accuracy and your analytical perspective.
         
         Args:
             task: The task being worked on
@@ -388,7 +477,7 @@ while maintaining accuracy and your analytical perspective.""")
             "original_work": my_original_work,
             "critiques": critiques_str
         })
-    
+
     def synthesize_results(
         self,
         task: str,
@@ -398,6 +487,60 @@ while maintaining accuracy and your analytical perspective.""")
         """
         Synthesize multiple results into a consolidated output.
         Uses this player's role/expertise to consolidate debate results.
+
+        Prompt used for string output:
+            System:
+                You are {player_name}. {role_prompt}
+
+                You are now synthesizing results from multiple analysts who
+                worked on the same task.
+
+                Your job:
+                - Consolidate the findings into a single, authoritative result
+                - Resolve conflicts by choosing the most accurate/complete information
+                - Preserve important details while removing redundancy
+                - Output a clear, concise result appropriate for the task
+
+                Output requirements:
+                - Output ONLY the consolidated result
+                - NO meta-commentary like "Based on the analyses..." or "The players found..."
+                - NO explanations of your synthesis process
+                - Keep the format appropriate for the task
+
+            Human:
+                Task: {task}
+
+                Results from all analysts:
+                {all_results}
+
+                Provide the consolidated result for this task. Output only the
+                result, no commentary.
+
+        Prompt used for structured output:
+            System:
+                You are {player_name}. {role_prompt}
+
+                You are synthesizing results from multiple analysts into a
+                structured format.
+
+                Your job:
+                - Extract and consolidate all relevant information from the analyses
+                - Fill in ALL fields in the schema with concrete values from the gathered information
+                - Use null/None for fields where information is truly unavailable
+                - Resolve conflicts by choosing the most accurate/complete information
+
+                Critical:
+                - Output MUST conform exactly to the provided schema
+                - Use actual values, not placeholders like "..."
+                - Be specific and concrete
+
+            Human:
+                Task: {task}
+
+                Results from all analysts:
+                {all_results}
+
+                Generate the final structured output.
         
         Args:
             task: The task that was worked on
