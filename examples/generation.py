@@ -97,17 +97,12 @@ plan_payload = plan.model_dump(mode="json") if hasattr(plan, "model_dump") else 
 logger.info("Generated Plan:\n%s", json.dumps(plan_payload, indent=2, default=str))
 
 
-# 4. Execute the generated plan. Registering the context under a key lets tools
-# invoked by the executor retrieve the same context during plan execution.
+# 4. Execute the generated plan. The orchestrator will execute each step in the plan, making calls to tools
 log_step_section(4, "Execute plan")
-context_key = "ctx_my_dataset"
-register_context(context_key, context)
 
-executor = PlanExecutor(topology_name=topology_name)
-result = executor.execute(
+result = orchestrator.execute_plan(
     plan=plan,
     context=context,
-    context_key=context_key,
     metadata_standard=METADATA_STANDARDS["spatial_ecological"],
     metadata_standard_name="spatial_ecological"
 )
