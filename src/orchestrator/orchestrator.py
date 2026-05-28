@@ -10,7 +10,12 @@ from langchain_core.output_parsers import PydanticOutputParser
 
 from src.core.schemas import Plan, ExecutionResult
 
-from ..config import DEFAULT_TOPOLOGY, LLM_PROVIDER, create_llm
+from ..config import (
+    DEFAULT_TOPOLOGY,
+    LLM_PROVIDER,
+    PLANNING_TEMPERATURE,
+    create_llm,
+)
 from ..context import ContextType, ExecutionContext, create_context
 from ..context.context_classifier import classify_context_type
 from ..players import PLAYER_CONFIGS, Player, create_player_from_config
@@ -34,10 +39,10 @@ class Orchestrator:
 
     def __init__(
         self,
-        topology_name: str,
-        model_name: str,
-        temperature: float,
-        provider: str,
+        topology_name: str = DEFAULT_TOPOLOGY,
+        model_name: Optional[str] = None,
+        temperature: Optional[float] = None,
+        provider: Optional[str] = None,
     ):
         topology_name = topology_name or DEFAULT_TOPOLOGY
         temperature = temperature if temperature is not None else PLANNING_TEMPERATURE
@@ -144,7 +149,9 @@ class Orchestrator:
                     config["tools"] = filter_tools_by_context_type(
                         config.get("tools", []), context.context_type
                     )
-                player = create_player_from_config(config, name=role_name)
+                player = create_player_from_config(
+                    config, name=role_name, role_key=role_name
+                )
                 manifest_parts.append(player.get_tool_manifest())
 
         return "\n\n".join(manifest_parts)

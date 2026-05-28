@@ -4,15 +4,16 @@ Textual-based terminal UI for Metadata Agent.
 
 from pathlib import Path
 import logging
+from pprint import pformat
 import queue
 import threading
 
 from rich.highlighter import Highlighter
 from rich.text import Text
 from textual.app import App, ComposeResult
-from textual.events import Key
+from textual.binding import Binding
 from textual.containers import Container, Vertical
-from textual.widgets import Input, Static
+from textual.widgets import Static, TextArea
 from src.tui.palette import (
     COMMAND_NAME_COLOR,
     DESCRIPTION_COLOR,
@@ -25,11 +26,21 @@ from src.tui.palette import (
     REFERENCE_TEXT_COLOR,
     STANDARD_REFERENCE_BACKGROUND,
     STANDARD_REFERENCE_TEXT_COLOR,
+    AT_SUGGESTION_SELECTION_COLOR,
     SUGGESTION_COLOR,
     TITLE_COLOR,
 )
 from src.standards import METADATA_STANDARDS
-from src.config import DEFAULT_TOPOLOGY, LLM_PROVIDER, PLANNING_TEMPERATURE, get_model_name
+from src.standards import get_schema_for_standard
+from src.config import (
+    DEFAULT_TOPOLOGY,
+    LLM_PROVIDER,
+    PLANNING_TEMPERATURE,
+    TUI_LOG_LEVEL,
+    TUI_LOG_SUPPRESSED_LOGGERS,
+    TUI_UI_VERBOSITY,
+    get_model_name,
+)
 from src.tui.reference_session import ReferenceSessionState
 from src.tui.references import (
     extract_invalid_standard_mentions,
@@ -38,6 +49,8 @@ from src.tui.references import (
     stylize_verified_references,
 )
 from src.orchestrator import Orchestrator
+from src.orchestrator.utils import validate_plan_dataflow, validate_plan_tool_compatibility
+from src.context import create_context
 
 
 class VerifiedReferenceHighlighter(Highlighter):
@@ -54,17 +67,85 @@ class VerifiedReferenceHighlighter(Highlighter):
 class TUILogHandler(logging.Handler):
     """Forward Python logging records into the TUI event queue."""
 
-    def __init__(self, app: "MetadataTUI") -> None:
-        super().__init__(level=logging.INFO)
+    def __init__(
+        self,
+        app: "MetadataTUI",
+        level: int = logging.INFO,
+        ui_verbosity: str = "normal",
+    ) -> None:
+        super().__init__(level=level)
         self.app = app
+        self.ui_verbosity = ui_verbosity
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
             message = self.format(record)
-            self.app.ui_events.put(("log", message, False))
+            # Reduce noise in TUI: skip artifact dump logs.
+            artifact_markers = (
+                "Artifacts produced:",
+                "Produced artifacts:",
+                "Final Workspace Artifacts",
+                "'artifacts':",
+                '"artifacts":',
+            )
+            if any(marker in message for marker in artifact_markers):
+                return
+            self.app.ui_events.put(("status", message, False))
+            if self.ui_verbosity == "debug":
+                self.app.ui_events.put(("log", message, False))
+            elif self.ui_verbosity == "normal" and "[ui]" in message:
+                self.app.ui_events.put(("log", message, False))
         except Exception:
             # Logging should never crash the UI.
             pass
+
+
+class TUILogFilter(logging.Filter):
+    """Filter noisy records from the TUI feed."""
+
+    def __init__(self, suppressed_prefixes: tuple[str, ...]) -> None:
+        super().__init__()
+        self.suppressed_prefixes = suppressed_prefixes
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if not self.suppressed_prefixes:
+            return True
+        return not record.name.startswith(self.suppressed_prefixes)
+
+
+class PromptTextArea(TextArea):
+    """Multiline prompt input with app-controlled submit/completion keys."""
+
+    BINDINGS = [
+        Binding("enter", "submit_or_complete", show=False, priority=True),
+        Binding("up", "suggestion_up_or_cursor", show=False, priority=True),
+        Binding("down", "suggestion_down_or_cursor", show=False, priority=True),
+        Binding("tab", "complete_suggestion", show=False, priority=True),
+    ]
+
+    def action_submit_or_complete(self) -> None:
+        if isinstance(self.app, MetadataTUI):
+            self.app._handle_prompt_enter(self)
+
+    def action_suggestion_up_or_cursor(self) -> None:
+        if isinstance(self.app, MetadataTUI) and self.app._handle_prompt_navigation(self, "up"):
+            return
+        self.action_cursor_up()
+
+    def action_suggestion_down_or_cursor(self) -> None:
+        if isinstance(self.app, MetadataTUI) and self.app._handle_prompt_navigation(self, "down"):
+            return
+        self.action_cursor_down()
+
+    def action_complete_suggestion(self) -> None:
+        if isinstance(self.app, MetadataTUI):
+            self.app._handle_prompt_tab(self)
+
+    def get_line(self, line_index: int) -> Text:
+        line = super().get_line(line_index)
+        if isinstance(self.app, MetadataTUI):
+            return self.app._stylize_verified_references(line)
+        return line
 
 
 class MetadataTUI(App):
@@ -90,6 +171,7 @@ class MetadataTUI(App):
         padding: 0;
         layout: vertical;
         overflow-y: auto;
+        scrollbar-size-vertical: 0;
     }
 
     #feed {
@@ -114,11 +196,34 @@ class MetadataTUI(App):
         padding: 1 2;
         border: none;
         background: __INPUT_BACKGROUND__;
+        text-wrap: wrap;
+        overflow-x: hidden;
+    }
+
+    #user_input .text-area--cursor-line {
+        background: __INPUT_BACKGROUND__;
+    }
+
+    #user_input .text-area--gutter,
+    #user_input .text-area--cursor-gutter {
+        background: __INPUT_BACKGROUND__;
+    }
+
+    #user_input .text-area--placeholder {
+        background: __INPUT_BACKGROUND__;
     }
 
     #command_suggestions {
         margin: 0 2 1 2;
         color: __SUGGESTION_COLOR__;
+    }
+
+    #status_line {
+        height: 1;
+        margin: 0 2 0 2;
+        color: __SUGGESTION_COLOR__;
+        text-wrap: nowrap;
+        overflow: hidden;
     }
 
     #dialog {
@@ -163,6 +268,15 @@ class MetadataTUI(App):
     backend_running: bool = False
     ui_events: "queue.Queue[tuple[str, str, bool]]"
     tui_log_handler: TUILogHandler | None = None
+    at_suggestions: list[tuple[str, str]]
+    at_selected_index: int
+    INPUT_MIN_HEIGHT = 3
+    INPUT_MAX_HEIGHT = 12
+    STATUS_ICONS = ["🌑", "🌒", "🌓", "🌔", "🌕", "🌖", "🌗", "🌘"]
+
+    @staticmethod
+    def _parse_suppressed_logger_prefixes(raw: str) -> tuple[str, ...]:
+        return tuple(part.strip() for part in raw.split(",") if part.strip())
 
     @staticmethod
     def _get_active_token(text: str, cursor_position: int) -> str:
@@ -187,8 +301,125 @@ class MetadataTUI(App):
         rendered = Text.from_markup(text) if markup else Text(text)
         return self._stylize_verified_references(rendered)
 
+    @staticmethod
+    def _sanitize_status_message(message: str) -> str:
+        compact = " ".join(part for part in message.replace("\n", " ").split())
+        if compact.startswith("[log]"):
+            compact = compact[5:].strip()
+        if "[ui]" in compact:
+            compact = compact.replace("[ui]", "").strip()
+        return compact
+
+    def _update_status_line(self, message: str) -> None:
+        status_widget = self.query_one("#status_line", Static)
+        if not self.backend_running:
+            status_widget.update("")
+            status_widget.display = False
+            return
+        status_widget.display = True
+        icon = self.STATUS_ICONS[self.status_icon_index % len(self.STATUS_ICONS)]
+        self.status_icon_index += 1
+        clean = self._sanitize_status_message(message)
+        max_len = max(16, status_widget.size.width - 6) if status_widget.size.width else 80
+        if len(clean) > max_len:
+            clean = clean[: max_len - 3].rstrip() + "..."
+        status_widget.update(f"{icon} {clean}")
+
+    def _update_input_height(self, input_widget: TextArea) -> None:
+        """
+        Auto-grow input height based on wrapped content, so all typed text stays visible.
+        Includes 2 rows for top/bottom padding in CSS.
+        """
+        text = input_widget.text or ""
+        inner_width = max(1, input_widget.size.width - 4)  # horizontal padding is 2+2
+        wrapped_lines = 0
+        for line in text.splitlines() or [""]:
+            wrapped_lines += max(1, (len(line) + inner_width - 1) // inner_width)
+        desired_height = min(
+            self.INPUT_MAX_HEIGHT,
+            max(self.INPUT_MIN_HEIGHT, wrapped_lines + 2),
+        )
+        input_widget.styles.height = desired_height
+
+    def _reset_at_suggestions(self) -> None:
+        self.at_suggestions = []
+        self.at_selected_index = 0
+
+    @staticmethod
+    def _cursor_offset(input_widget: TextArea) -> int:
+        row, column = input_widget.cursor_location
+        lines = input_widget.text.split("\n")
+        row = max(0, min(row, len(lines) - 1))
+        column = max(0, min(column, len(lines[row])))
+        return sum(len(line) + 1 for line in lines[:row]) + column
+
+    @staticmethod
+    def _location_from_offset(text: str, offset: int) -> tuple[int, int]:
+        offset = max(0, min(offset, len(text)))
+        before_cursor = text[:offset]
+        row = before_cursor.count("\n")
+        column = len(before_cursor.rsplit("\n", 1)[-1])
+        return row, column
+
+    def _render_at_suggestions(self, warning_text: str) -> str:
+        if not self.at_suggestions:
+            return warning_text
+        lines = []
+        for idx, (token, kind) in enumerate(self.at_suggestions):
+            is_selected = idx == self.at_selected_index
+            if is_selected:
+                if kind == "standard":
+                    styled = (
+                        f"[bold {AT_SUGGESTION_SELECTION_COLOR} on {STANDARD_REFERENCE_BACKGROUND}]"
+                        f"@{token}"
+                        f"[/]"
+                    )
+                else:
+                    styled = (
+                        f"[bold {AT_SUGGESTION_SELECTION_COLOR} on {REFERENCE_BACKGROUND}]"
+                        f"@{token}"
+                        f"[/]"
+                    )
+            elif kind == "standard":
+                styled = (
+                    f"[{STANDARD_REFERENCE_TEXT_COLOR} on {STANDARD_REFERENCE_BACKGROUND}]"
+                    f"@{token}"
+                    f"[/{STANDARD_REFERENCE_TEXT_COLOR} on {STANDARD_REFERENCE_BACKGROUND}]"
+                )
+            else:
+                styled = (
+                    f"[{REFERENCE_TEXT_COLOR} on {REFERENCE_BACKGROUND}]"
+                    f"@{token}"
+                    f"[/{REFERENCE_TEXT_COLOR} on {REFERENCE_BACKGROUND}]"
+                )
+            lines.append(styled)
+        body = "\n".join(lines)
+        return f"{warning_text}\n{body}".strip() if warning_text else body
+
+    def _apply_selected_at_suggestion(self, input_widget: TextArea) -> bool:
+        cursor_position = self._cursor_offset(input_widget)
+        current_text = input_widget.text
+        active_token = self._get_active_token(current_text, cursor_position)
+        if not active_token.startswith("@") or not self.at_suggestions:
+            return False
+
+        selected_token = self.at_suggestions[self.at_selected_index][0]
+        token_start = cursor_position - len(active_token)
+        completed_token = f"@{selected_token}"
+        updated_text = (
+            f"{current_text[:token_start]}{completed_token}{current_text[cursor_position:]}"
+        )
+        new_cursor_offset = token_start + len(completed_token)
+        input_widget.load_text(updated_text)
+        input_widget.move_cursor(self._location_from_offset(updated_text, new_cursor_offset))
+        self._update_input_height(input_widget)
+        self._update_suggestions(updated_text, new_cursor_offset)
+        return True
+
     def on_mount(self) -> None:
         self.ui_events = queue.Queue()
+        self._reset_at_suggestions()
+        self.status_icon_index = 0
         self.set_interval(0.1, self._flush_ui_events)
 
         self.reference_session = ReferenceSessionState()
@@ -203,15 +434,30 @@ class MetadataTUI(App):
             # Keep TUI usable even if backend initialization fails.
             self.orchestrator = None
 
+        tui_log_level = getattr(logging, TUI_LOG_LEVEL, logging.INFO)
         root_logger = logging.getLogger()
-        root_logger.setLevel(logging.INFO)
-        self.tui_log_handler = TUILogHandler(self)
+        root_logger.setLevel(tui_log_level)
+        self.tui_log_handler = TUILogHandler(
+            self,
+            level=tui_log_level,
+            ui_verbosity=TUI_UI_VERBOSITY,
+        )
+        self.tui_log_handler.addFilter(
+            TUILogFilter(
+                self._parse_suppressed_logger_prefixes(TUI_LOG_SUPPRESSED_LOGGERS)
+            )
+        )
         self.tui_log_handler.setFormatter(
             logging.Formatter("[log] %(asctime)s - %(levelname)s - %(message)s", "%H:%M:%S")
         )
         root_logger.addHandler(self.tui_log_handler)
 
-        self.query_one("#user_input", Input).focus()
+        input_widget = self.query_one("#user_input", TextArea)
+        self._update_input_height(input_widget)
+        input_widget.focus()
+        status_widget = self.query_one("#status_line", Static)
+        status_widget.update("")
+        status_widget.display = False
         self.query_one("#panel", Container).scroll_home(animate=False)
 
     def _flush_ui_events(self) -> None:
@@ -225,13 +471,19 @@ class MetadataTUI(App):
                 self._append_dialog(message, markup=markup)
             elif kind == "done":
                 self.backend_running = False
-                input_widget = self.query_one("#user_input", Input)
+                input_widget = self.query_one("#user_input", TextArea)
                 suggestions_widget = self.query_one("#command_suggestions", Static)
                 input_widget.disabled = False
                 input_widget.display = True
+                self._update_input_height(input_widget)
                 suggestions_widget.display = True
+                status_widget = self.query_one("#status_line", Static)
+                status_widget.update("")
+                status_widget.display = False
             elif kind == "log":
                 self._append_dialog(message)
+            elif kind == "status":
+                self._update_status_line(message)
 
     def _run_pipeline_worker(
         self,
@@ -246,18 +498,91 @@ class MetadataTUI(App):
 
         try:
             standard_prompt = METADATA_STANDARDS[chosen_standard]
-            result = self.orchestrator.run(
-                source=source_files,
+            output_schema = get_schema_for_standard(chosen_standard)
+            if output_schema:
+                self.ui_events.put(("status", f"Using schema: {output_schema.__name__}", False))
+            else:
+                self.ui_events.put(
+                    (
+                        "message",
+                        f"[yellow]Structured output schema not found for @{chosen_standard}; using free-form output.[/yellow]",
+                        True,
+                    )
+                )
+            self.ui_events.put(("status", "Generating execution context...", False))
+            context = create_context(source_files, name="tui_context")
+
+            self.ui_events.put(("status", "Generating plan...", False))
+            plan = self.orchestrator.generate_plan(
+                context=context,
+                metadata_standard=standard_prompt,
+            )
+            if plan is None:
+                self.ui_events.put(("message", "[red]Plan generation failed.[/red]", True))
+                self.ui_events.put(("done", "", False))
+                return
+
+            plan_dict = plan.to_dict_list()
+            self.ui_events.put(
+                (
+                    "message",
+                    "[bold cyan]Execution Plan[/bold cyan]\n" + pformat(plan_dict, width=100, sort_dicts=False),
+                    True,
+                )
+            )
+
+            if not self.orchestrator._validate_plan(plan, context):
+                plan_dict = plan.to_dict_list()
+                dataflow_ok, dataflow_msg = validate_plan_dataflow(plan_dict)
+                if not dataflow_ok:
+                    self.ui_events.put(
+                        (
+                            "message",
+                            f"[red]Generated plan failed validation:[/red] {dataflow_msg}",
+                            True,
+                        )
+                    )
+                    self.ui_events.put(("status", "Plan validation failed (dataflow).", False))
+                else:
+                    allowed_players = set(self.orchestrator._get_effective_player_pool(context))
+                    tools_ok, tools_msg = validate_plan_tool_compatibility(
+                        plan=plan_dict,
+                        context_type=context.context_type,
+                        allowed_players=allowed_players,
+                    )
+                    self.ui_events.put(
+                        (
+                            "message",
+                            f"[red]Generated plan failed validation:[/red] {tools_msg if not tools_ok else 'Unknown validation error.'}",
+                            True,
+                        )
+                    )
+                    self.ui_events.put(("status", "Plan validation failed (tool compatibility).", False))
+                self.ui_events.put(("done", "", False))
+                return
+
+            self.ui_events.put(("status", "Executing plan...", False))
+            result = self.orchestrator.execute_plan(
+                plan=plan,
+                context=context,
                 metadata_standard=standard_prompt,
                 metadata_standard_name=chosen_standard,
-                name="tui_context",
             )
             if result is None:
                 self.ui_events.put(("message", "[red]Pipeline run failed: no result returned.[/red]", True))
             elif result.final_metadata:
+                self.ui_events.put(("status", f"Completed with @{chosen_standard}.", False))
                 self.ui_events.put(("message", f"Pipeline completed with @{chosen_standard}.", False))
-                self.ui_events.put(("message", str(result.final_metadata), False))
+                self.ui_events.put(
+                    (
+                        "message",
+                        "[bold cyan]Final Metadata[/bold cyan]\n"
+                        + pformat(result.final_metadata, width=100, sort_dicts=False),
+                        True,
+                    )
+                )
             else:
+                self.ui_events.put(("status", f"Completed with @{chosen_standard} (no final metadata).", False))
                 self.ui_events.put(
                     (
                         "message",
@@ -280,9 +605,13 @@ class MetadataTUI(App):
                     id="welcome",
                 ),
                 Vertical(id="messages"),
-                Input(
+                Static("", id="status_line"),
+                PromptTextArea(
                     placeholder="Type your request (or /help) and press Enter...",
-                    highlighter=VerifiedReferenceHighlighter(self),
+                    soft_wrap=True,
+                    show_line_numbers=False,
+                    compact=True,
+                    highlight_cursor_line=False,
                     id="user_input",
                 ),
                 Static("", id="command_suggestions"),
@@ -313,10 +642,12 @@ class MetadataTUI(App):
 
         active_token = self._get_active_token(current_text, cursor_position)
         if not active_token:
+            self._reset_at_suggestions()
             suggestions_widget.update(warning_text)
             return
 
         if active_token.startswith("/") and current_text[:cursor_position].lstrip() == active_token:
+            self._reset_at_suggestions()
             matches = [
                 (command, description)
                 for command, description in self.SLASH_COMMANDS.items()
@@ -348,34 +679,51 @@ class MetadataTUI(App):
             return
 
         if active_token.startswith("@"):
-            suggestions = get_at_suggestions(
+            previous_selection = (
+                self.at_suggestions[self.at_selected_index][0]
+                if self.at_suggestions and self.at_selected_index < len(self.at_suggestions)
+                else None
+            )
+            raw_suggestions = get_at_suggestions(
                 active_token,
                 root=self.reference_root,
                 standard_names=self.standard_names,
             )
+            # Do not suggest references that are already present in the prompt.
+            suggestions = [
+                item
+                for item in raw_suggestions
+                if f"@{item.token}" not in current_text
+            ]
 
             if not suggestions:
-                suggestion_text = (
-                    f"[{NO_MATCH_COMMAND_COLOR}]No matching files or standards[/{NO_MATCH_COMMAND_COLOR}]"
-                )
-                suggestions_widget.update(
-                    f"{warning_text}\n{suggestion_text}".strip() if warning_text else suggestion_text
-                )
+                self._reset_at_suggestions()
+                # If matches exist but were filtered because they are already in input,
+                # avoid showing a misleading "No matching..." message.
+                if raw_suggestions:
+                    suggestions_widget.update(warning_text)
+                else:
+                    suggestion_text = (
+                        f"[{NO_MATCH_COMMAND_COLOR}]No matching files or standards[/{NO_MATCH_COMMAND_COLOR}]"
+                    )
+                    suggestions_widget.update(
+                        f"{warning_text}\n{suggestion_text}".strip() if warning_text else suggestion_text
+                    )
                 return
 
-            suggestions_text = "\n".join(
-                (
-                    f"[{STANDARD_REFERENCE_TEXT_COLOR} on {STANDARD_REFERENCE_BACKGROUND}]@{item.token}[/{STANDARD_REFERENCE_TEXT_COLOR} on {STANDARD_REFERENCE_BACKGROUND}]"
-                    if item.kind == "standard"
-                    else f"[{REFERENCE_TEXT_COLOR} on {REFERENCE_BACKGROUND}]@{item.token}[/{REFERENCE_TEXT_COLOR} on {REFERENCE_BACKGROUND}]"
-                )
-                for item in suggestions
-            )
-            suggestions_widget.update(
-                f"{warning_text}\n{suggestions_text}".strip() if warning_text else suggestions_text
-            )
+            self.at_suggestions = [(item.token, item.kind) for item in suggestions]
+            if previous_selection:
+                matching_indexes = [
+                    idx for idx, (token, _) in enumerate(self.at_suggestions) if token == previous_selection
+                ]
+                self.at_selected_index = matching_indexes[0] if matching_indexes else 0
+            elif self.at_selected_index >= len(self.at_suggestions):
+                self.at_selected_index = 0
+
+            suggestions_widget.update(self._render_at_suggestions(warning_text))
             return
 
+        self._reset_at_suggestions()
         suggestions_widget.update(warning_text)
 
     def _handle_command(self, command_text: str) -> None:
@@ -401,7 +749,7 @@ class MetadataTUI(App):
             markup=True,
         )
 
-    def on_input_submitted(self, _: Input.Submitted) -> None:
+    def _submit_current_input(self, input_widget: TextArea) -> None:
         if self.backend_running:
             self._append_dialog(
                 "[red]Pipeline is already running. Please wait for completion.[/red]",
@@ -409,9 +757,9 @@ class MetadataTUI(App):
             )
             return
 
-        input_widget = self.query_one("#user_input", Input)
-        user_text = input_widget.value.strip()
-        input_widget.value = ""
+        user_text = input_widget.text.strip()
+        input_widget.load_text("")
+        self._update_input_height(input_widget)
         self._update_suggestions("", 0)
         self.reference_session.clear_current()
 
@@ -448,7 +796,7 @@ class MetadataTUI(App):
 
         if not referenced_files:
             self._append_dialog(
-                "[red]Please include at least one valid @file reference to run the backend.[/red]",
+                "[red]Please include at least one valid @file reference to run this tool.[/red]",
                 markup=True,
             )
             return
@@ -469,6 +817,7 @@ class MetadataTUI(App):
             input_widget.disabled = True
             input_widget.display = False
             self.query_one("#command_suggestions", Static).display = False
+            self.ui_events.put(("status", f"Running pipeline with @{chosen_standard}...", False))
             self._append_dialog(f"Running pipeline with @{chosen_standard}...")
             threading.Thread(
                 target=self._run_pipeline_worker,
@@ -483,21 +832,50 @@ class MetadataTUI(App):
             f"Captured valid file context: {file_summary}. No @standard provided yet.",
         )
 
-    def on_input_changed(self, event: Input.Changed) -> None:
-        self.reference_session.update_from_input(event.value, self.reference_root)
-        self._update_suggestions(event.value, event.input.cursor_position)
-
-    def on_key(self, event: Key) -> None:
-        if event.key != "tab":
+    def on_text_area_changed(self, event: TextArea.Changed) -> None:
+        if event.text_area.id != "user_input":
             return
+        cursor_position = self._cursor_offset(event.text_area)
+        self.reference_session.update_from_input(event.text_area.text, self.reference_root)
+        self._update_input_height(event.text_area)
+        self._update_suggestions(event.text_area.text, cursor_position)
 
-        input_widget = self.query_one("#user_input", Input)
-        if not input_widget.has_focus:
-            return
-
-        current_text = input_widget.value
-        cursor_position = input_widget.cursor_position
+    def _handle_prompt_enter(self, input_widget: TextArea) -> bool:
+        current_text = input_widget.text
+        cursor_position = self._cursor_offset(input_widget)
         active_token = self._get_active_token(current_text, cursor_position)
+        is_at_context = active_token.startswith("@")
+
+        if is_at_context and self.at_suggestions:
+            selected_token = self.at_suggestions[self.at_selected_index][0]
+            completed_token = f"@{selected_token}"
+            if completed_token in current_text:
+                return True
+            if self._apply_selected_at_suggestion(input_widget):
+                return True
+
+        self._submit_current_input(input_widget)
+        return True
+
+    def _handle_prompt_navigation(self, input_widget: TextArea, key: str) -> bool:
+        current_text = input_widget.text
+        cursor_position = self._cursor_offset(input_widget)
+        active_token = self._get_active_token(current_text, cursor_position)
+        if not active_token.startswith("@") or not self.at_suggestions:
+            return False
+        delta = -1 if key == "up" else 1
+        self.at_selected_index = (self.at_selected_index + delta) % len(self.at_suggestions)
+        self._update_suggestions(current_text, cursor_position)
+        return True
+
+    def _handle_prompt_tab(self, input_widget: TextArea) -> bool:
+        current_text = input_widget.text
+        cursor_position = self._cursor_offset(input_widget)
+        active_token = self._get_active_token(current_text, cursor_position)
+        is_at_context = active_token.startswith("@")
+        if is_at_context and self.at_suggestions and self._apply_selected_at_suggestion(input_widget):
+            return True
+
         suggestions = get_at_suggestions(
             active_token,
             root=self.reference_root,
@@ -506,17 +884,19 @@ class MetadataTUI(App):
         matches = [item.token for item in suggestions]
 
         if len(matches) != 1:
-            return
+            return False
 
         token_start = cursor_position - len(active_token)
         completed_token = f"@{matches[0]}"
-        input_widget.value = (
+        updated_text = (
             f"{current_text[:token_start]}{completed_token}{current_text[cursor_position:]}"
         )
-        input_widget.cursor_position = token_start + len(completed_token)
-        self._update_suggestions(input_widget.value, input_widget.cursor_position)
-        event.prevent_default()
-        event.stop()
+        new_cursor_offset = token_start + len(completed_token)
+        input_widget.load_text(updated_text)
+        input_widget.move_cursor(self._location_from_offset(updated_text, new_cursor_offset))
+        self._update_input_height(input_widget)
+        self._update_suggestions(updated_text, new_cursor_offset)
+        return True
 
 
 def run_tui() -> None:

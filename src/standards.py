@@ -57,20 +57,20 @@ STANDARD_DEFINITIONS: Dict[str, Dict[str, Dict[str, Any]]] = {
         "temporal_coverage": {
             "type": Optional[str],
             "default": None,
-            "description": "Time period covered",
-            "prompt_hint": "...",
+            "description": "Time period covered, from and to date",
+            "prompt_hint": "Time period covered, from and to date",
         },
         "temporal_resolution": {
             "type": Optional[str],
             "default": None,
             "description": "Temporal resolution of the data",
-            "prompt_hint": "...",
+            "prompt_hint": "Temporal resolution of the data, e.g. daily, monthly, yearly",
         },
         "methods": {
             "type": Optional[str],
             "default": None,
             "description": "Methods used for data collection",
-            "prompt_hint": "...",
+            "prompt_hint": "Methods used for data collection",
         },
         "format": {
             "type": Optional[str],

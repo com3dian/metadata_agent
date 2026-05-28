@@ -1,8 +1,9 @@
 """
 Unified ExecutionContext Tools for the Multi-Agent System.
 """
+import ast
 import re
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import pandas as pd
 from langchain_core.tools import tool
@@ -380,6 +381,39 @@ def _detect_wkt_geometry(series: pd.Series) -> Optional[str]:
     return None
 
 
+_TUPLE_PAIR_RE = re.compile(
+    r"^\(\s*([-+]?(?:\d*\.\d+|\d+)(?:[eE][-+]?\d+)?)\s*,\s*"
+    r"([-+]?(?:\d*\.\d+|\d+)(?:[eE][-+]?\d+)?)\s*\)$"
+)
+
+
+def _try_parse_two_float_tuple(val: Any) -> Optional[Tuple[float, float]]:
+    """Parse values like '(-7.82, 54.26)' or '(lon, lat)' into two floats."""
+    if val is None or (isinstance(val, float) and pd.isna(val)):
+        return None
+    s = str(val).strip()
+    m = _TUPLE_PAIR_RE.match(s)
+    if m:
+        return float(m.group(1)), float(m.group(2))
+    try:
+        t = ast.literal_eval(s)
+        if isinstance(t, (list, tuple)) and len(t) == 2:
+            return float(t[0]), float(t[1])
+    except (ValueError, SyntaxError, TypeError):
+        pass
+    return None
+
+
+def _sample_tuple_parse_rate(series: pd.Series, max_sample: int = 80) -> Tuple[int, int]:
+    """Return (parsed_count, tried_count) on non-null head sample."""
+    sample = series.dropna().head(max_sample)
+    tried = len(sample)
+    if tried == 0:
+        return 0, 0
+    parsed = sum(1 for v in sample if _try_parse_two_float_tuple(v) is not None)
+    return parsed, tried
+
+
 @tool
 def detect_temporal_columns(context_key: str, resource: str = "") -> Dict[str, Any]:
     """
@@ -508,54 +542,87 @@ def detect_spatial_columns(context_key: str, resource: str = "") -> Dict[str, An
     """
     Detect columns that contain spatial (geographic/coordinate) data in a resource.
     Returns column names, detected types, and spatial characteristics.
+
+    Also reports `tuple_coord_columns`: string columns whose values look like
+    ``"(a, b)"`` pairs of floats (e.g. survey ``tuple_coords`` as ``(lon, lat)``).
+    Use ``get_spatial_extent_from_tuple_column`` for extent on those columns.
     """
     try:
         ctx = get_context(context_key)
         resource = resource or ctx.resources[0]
         df = ctx.read_resource(resource)
-        
+
         spatial_columns = {}
         coordinate_pairs = []
-        
+        tuple_coord_columns: List[Dict[str, Any]] = []
+
         for col in df.columns:
             col_info = {
                 "name_suggests_spatial": _is_spatial_column_name(col),
                 "detected_type": None,
                 "sample_values": [],
             }
-            
+
             # Check for WKT geometry
             wkt_type = _detect_wkt_geometry(df[col])
             if wkt_type:
                 col_info["detected_type"] = wkt_type
-            
+
             # Check for coordinate values
             coord_type = _detect_coordinate_values(df[col])
             if coord_type:
                 col_info["detected_type"] = coord_type
-            
+
+            # Tuple string pairs "(lon, lat)" — common in ecology / BMS exports
+            if (
+                col_info["detected_type"] is None
+                and (df[col].dtype == object or str(df[col].dtype) == "string")
+            ):
+                parsed, tried = _sample_tuple_parse_rate(df[col])
+                if tried > 0 and parsed / tried >= 0.75:
+                    col_info["detected_type"] = "two_float_tuple_string"
+                    col_info["tuple_order_hint"] = (
+                        "lon_lat"
+                    )  # default; many UK/EU grids use (lon, lat)
+                    tuple_coord_columns.append(
+                        {
+                            "column": col,
+                            "tuple_order": "lon_lat",
+                            "sample_parse_rate": round(parsed / tried, 3),
+                            "note": "Default tuple_order is lon_lat; pass tuple_order='lat_lon' to "
+                            "get_spatial_extent_from_tuple_column if your file uses (lat, lon).",
+                        }
+                    )
+
             # If either name or type suggests spatial, include it
             if col_info["name_suggests_spatial"] or col_info["detected_type"]:
                 sample = df[col].dropna().head(5).tolist()
                 col_info["sample_values"] = [str(v) for v in sample]
                 spatial_columns[col] = col_info
-        
+
         # Try to detect lat/lon pairs
-        lat_cols = [c for c, info in spatial_columns.items() 
-                    if info.get("detected_type") == "possible_latitude" or 
-                    re.search(r"lat", c.lower())]
-        lon_cols = [c for c, info in spatial_columns.items() 
-                    if info.get("detected_type") == "possible_longitude" or 
-                    re.search(r"lon", c.lower())]
-        
+        lat_cols = [
+            c
+            for c, info in spatial_columns.items()
+            if info.get("detected_type") == "possible_latitude"
+            or re.search(r"lat", c.lower())
+        ]
+        lon_cols = [
+            c
+            for c, info in spatial_columns.items()
+            if info.get("detected_type") == "possible_longitude"
+            or re.search(r"lon", c.lower())
+        ]
+
         if lat_cols and lon_cols:
             coordinate_pairs = [{"latitude": lat_cols[0], "longitude": lon_cols[0]}]
-        
+
         return {
             "resource": resource,
             "spatial_column_count": len(spatial_columns),
             "spatial_columns": spatial_columns,
             "detected_coordinate_pairs": coordinate_pairs,
+            "tuple_coord_columns": tuple_coord_columns,
         }
     except Exception as e:
         return {"error": str(e)}
@@ -688,6 +755,94 @@ def get_spatial_extent(
 
 
 @tool
+def get_spatial_extent_from_tuple_column(
+    context_key: str,
+    resource: str,
+    column: str,
+    tuple_order: str = "lon_lat",
+) -> Dict[str, Any]:
+    """
+    Bounding box from a single column of ``(a, b)`` float pairs (string or tuple).
+
+    Use when coordinates are stored like ``(-7.824283, 54.259247)`` instead of
+    separate latitude/longitude columns (e.g. some BMS / survey exports).
+
+    Args:
+        context_key: Registered ExecutionContext key.
+        resource: Resource name in the context.
+        column: Column containing ``(first, second)`` pairs.
+        tuple_order: ``lon_lat`` if values are ``(longitude, latitude)`` (default),
+            or ``lat_lon`` if values are ``(latitude, longitude)``.
+    """
+    try:
+        order = (tuple_order or "lon_lat").strip().lower()
+        if order not in ("lon_lat", "lat_lon"):
+            return {"error": f"Invalid tuple_order '{tuple_order}'; use lon_lat or lat_lon"}
+
+        ctx = get_context(context_key)
+        df = ctx.read_resource(resource)
+        if column not in df.columns:
+            return {"error": f"Column '{column}' not found"}
+
+        series = df[column]
+        lons: List[float] = []
+        lats: List[float] = []
+        parse_failed = 0
+
+        for val in series:
+            pair = _try_parse_two_float_tuple(val)
+            if pair is None:
+                if val is not None and not (isinstance(val, float) and pd.isna(val)):
+                    parse_failed += 1
+                continue
+            a, b = pair
+            if order == "lon_lat":
+                lons.append(a)
+                lats.append(b)
+            else:
+                lats.append(a)
+                lons.append(b)
+
+        if len(lats) == 0 or len(lons) == 0:
+            return {
+                "error": "No parseable (float, float) tuples found",
+                "column": column,
+                "tuple_order": order,
+                "parse_failed_rows": parse_failed,
+            }
+
+        result = {
+            "resource": resource,
+            "column": column,
+            "tuple_order": order,
+            "valid_point_count": min(len(lats), len(lons)),
+            "parse_failed_rows": parse_failed,
+            "bounding_box": {
+                "min_lat": float(min(lats)),
+                "max_lat": float(max(lats)),
+                "min_lon": float(min(lons)),
+                "max_lon": float(max(lons)),
+            },
+            "center": {
+                "lat": float(sum(lats) / len(lats)),
+                "lon": float(sum(lons) / len(lons)),
+            },
+        }
+
+        warnings = []
+        if result["bounding_box"]["min_lat"] < -90 or result["bounding_box"]["max_lat"] > 90:
+            warnings.append("Latitude values outside valid range [-90, 90]")
+        if result["bounding_box"]["min_lon"] < -180 or result["bounding_box"]["max_lon"] > 180:
+            warnings.append("Longitude values outside valid range [-180, 180]")
+        if warnings:
+            result["warnings"] = warnings
+
+        return result
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@tool
 def get_temporal_extent(
     context_key: str, resource: str, time_column: str
 ) -> Dict[str, Any]:
@@ -761,6 +916,7 @@ def get_all_context_tools() -> List:
         detect_spatial_columns,
         analyze_spatial_column,
         get_spatial_extent,
+        get_spatial_extent_from_tuple_column,
         get_temporal_extent,
     ]
 
@@ -786,6 +942,7 @@ def _get_tool_context_compatibility() -> Dict[str, Set[ContextType]]:
         "detect_spatial_columns": csv_types,
         "analyze_spatial_column": csv_types,
         "get_spatial_extent": csv_types,
+        "get_spatial_extent_from_tuple_column": csv_types,
         "get_temporal_extent": csv_types,
     }
 
