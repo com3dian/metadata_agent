@@ -18,10 +18,15 @@ import logging
 from pathlib import Path
 from time import perf_counter
 
-# Two logging modes are available: 
-# "full" prints all logs including those used in other modules; 
-# "top" prints only the message content inside this script. 
-if example_config.LOG_MODE == "full":
+
+# Three logging modes are available:
+# "full" prints all logs including those used in other modules;
+# "top" prints only the message content inside this script;
+# "quiet" suppresses logs and prints only the final metadata output.
+if example_config.LOG_MODE == "quiet":
+    logging.disable(logging.CRITICAL)
+    logger = logging.getLogger(__name__)
+elif example_config.LOG_MODE == "full":
     logging.basicConfig(
         level=getattr(logging, example_config.LOG_LEVEL),
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -36,7 +41,7 @@ elif example_config.LOG_MODE == "top":
     logger.addHandler(handler)
     logger.propagate = False
 else:
-    raise ValueError(f"Invalid LOG_MODE: {example_config.LOG_MODE}. Must be 'full' or 'top'.")
+    raise ValueError(f"Invalid LOG_MODE: {example_config.LOG_MODE}. Must be 'full', 'top', or 'quiet'.")
 
 
 process_start = perf_counter()
@@ -117,7 +122,11 @@ with (output_dir / f"metadata_{context.name}.json").open("w", encoding="utf-8") 
     json.dump(metadata_output, f, ensure_ascii=False, indent=2, default=str)
 
 logger.info("Extracted Metadata:")
-logger.info("%s", json.dumps(metadata_output, ensure_ascii=False, indent=2, default=str))
+metadata_json = json.dumps(metadata_output, ensure_ascii=False, indent=2, default=str)
+if example_config.LOG_MODE == "quiet":
+    print(metadata_json)
+else:
+    logger.info("%s", metadata_json)
 step_start = log_step_timing("Write metadata", step_start)
 logger.info("[timer] Whole process: %.3fs", step_start - process_start)
 logger.info("**************************** End of Workflow ****************************")
