@@ -230,6 +230,7 @@ class Player:
                     continue
 
                 has_resource_param = "resource" in fields
+                last_args: Dict[str, Any] | None = None
                 try:
                     if has_resource_param and resources_to_analyze:
                         for resource in resources_to_analyze:
@@ -239,6 +240,7 @@ class Player:
                             }
                             if tool.args_schema is not None:
                                 args = tool.args_schema.model_validate(args).model_dump()
+                            last_args = args
                             result = tool.invoke(args)
                             key = f"{resource}:{tool.name}"
                             tool_results[key] = result
@@ -254,6 +256,7 @@ class Player:
                         args = {"context_key": context_key}
                         if tool.args_schema is not None:
                             args = tool.args_schema.model_validate(args).model_dump()
+                        last_args = args
                         result = tool.invoke(args)
                         tool_results[tool.name] = result
                         tool_trace.append(
@@ -266,9 +269,14 @@ class Player:
                         )
                 except Exception as e:
                     tool_results[tool.name] = f"Error: {str(e)}"
-                    tool_trace.append(
-                        {"tool": tool.name, "error": str(e), "source": "eager"}
-                    )
+                    entry: Dict[str, Any] = {
+                        "tool": tool.name,
+                        "error": str(e),
+                        "source": "eager",
+                    }
+                    if last_args is not None:
+                        entry["args"] = last_args
+                    tool_trace.append(entry)
                 continue
 
             # Legacy: no schema — keyword heuristics
@@ -292,13 +300,18 @@ class Player:
                                 }
                             )
                         except Exception as e:
+                            resource_args = {
+                                "context_key": context_key,
+                                "resource": resource,
+                            }
                             try:
-                                result = tool.invoke({"context_key": context_key})
+                                fallback_args = {"context_key": context_key}
+                                result = tool.invoke(fallback_args)
                                 tool_results[tool.name] = result
                                 tool_trace.append(
                                     {
                                         "tool": tool.name,
-                                        "args": {"context_key": context_key},
+                                        "args": fallback_args,
                                         "result": result,
                                         "source": "eager",
                                     }
@@ -309,6 +322,7 @@ class Player:
                                 tool_trace.append(
                                     {
                                         "tool": tool.name,
+                                        "args": resource_args,
                                         "error": str(e),
                                         "source": "eager",
                                     }
@@ -326,7 +340,14 @@ class Player:
                     )
             except Exception as e:
                 tool_results[tool.name] = f"Error: {str(e)}"
-                tool_trace.append({"tool": tool.name, "error": str(e), "source": "eager"})
+                tool_trace.append(
+                    {
+                        "tool": tool.name,
+                        "args": {"context_key": context_key},
+                        "error": str(e),
+                        "source": "eager",
+                    }
+                )
 
         return tool_results
 
@@ -350,14 +371,18 @@ class Player:
 
         for resource in resources_to_analyze:
             if det_t:
+                detect_temporal_args = {
+                    "context_key": context_key,
+                    "resource": resource,
+                }
                 try:
-                    d = det_t.invoke({"context_key": context_key, "resource": resource})
+                    d = det_t.invoke(detect_temporal_args)
                     key = f"{resource}:detect_temporal_columns:extra"
                     tool_results[key] = d
                     tool_trace.append(
                         {
                             "tool": "detect_temporal_columns",
-                            "args": {"context_key": context_key, "resource": resource},
+                            "args": detect_temporal_args,
                             "result": d,
                             "source": "eager_extra",
                         }
@@ -373,24 +398,19 @@ class Player:
                         picked = list(cols.keys())[:max_cols]
                     for col in picked:
                         if ana_t:
+                            analyze_temporal_args = {
+                                "context_key": context_key,
+                                "resource": resource,
+                                "column": col,
+                            }
                             try:
-                                out = ana_t.invoke(
-                                    {
-                                        "context_key": context_key,
-                                        "resource": resource,
-                                        "column": col,
-                                    }
-                                )
+                                out = ana_t.invoke(analyze_temporal_args)
                                 rk = f"{resource}:analyze_temporal_column:{col}"
                                 tool_results[rk] = out
                                 tool_trace.append(
                                     {
                                         "tool": "analyze_temporal_column",
-                                        "args": {
-                                            "context_key": context_key,
-                                            "resource": resource,
-                                            "column": col,
-                                        },
+                                        "args": analyze_temporal_args,
                                         "result": out,
                                         "source": "eager_extra",
                                     }
@@ -399,29 +419,25 @@ class Player:
                                 tool_trace.append(
                                     {
                                         "tool": "analyze_temporal_column",
+                                        "args": analyze_temporal_args,
                                         "error": str(e),
                                         "source": "eager_extra",
                                     }
                                 )
                         if ext_t:
+                            temporal_extent_args = {
+                                "context_key": context_key,
+                                "resource": resource,
+                                "time_column": col,
+                            }
                             try:
-                                out = ext_t.invoke(
-                                    {
-                                        "context_key": context_key,
-                                        "resource": resource,
-                                        "time_column": col,
-                                    }
-                                )
+                                out = ext_t.invoke(temporal_extent_args)
                                 rk = f"{resource}:get_temporal_extent:{col}"
                                 tool_results[rk] = out
                                 tool_trace.append(
                                     {
                                         "tool": "get_temporal_extent",
-                                        "args": {
-                                            "context_key": context_key,
-                                            "resource": resource,
-                                            "time_column": col,
-                                        },
+                                        "args": temporal_extent_args,
                                         "result": out,
                                         "source": "eager_extra",
                                     }
@@ -430,24 +446,34 @@ class Player:
                                 tool_trace.append(
                                     {
                                         "tool": "get_temporal_extent",
+                                        "args": temporal_extent_args,
                                         "error": str(e),
                                         "source": "eager_extra",
                                     }
                                 )
                 except Exception as e:
                     tool_trace.append(
-                        {"tool": "detect_temporal_columns", "error": str(e), "source": "eager_extra"}
+                        {
+                            "tool": "detect_temporal_columns",
+                            "args": detect_temporal_args,
+                            "error": str(e),
+                            "source": "eager_extra",
+                        }
                     )
 
             if det_s:
+                detect_spatial_args = {
+                    "context_key": context_key,
+                    "resource": resource,
+                }
                 try:
-                    ds = det_s.invoke({"context_key": context_key, "resource": resource})
+                    ds = det_s.invoke(detect_spatial_args)
                     key = f"{resource}:detect_spatial_columns:extra"
                     tool_results[key] = ds
                     tool_trace.append(
                         {
                             "tool": "detect_spatial_columns",
-                            "args": {"context_key": context_key, "resource": resource},
+                            "args": detect_spatial_args,
                             "result": ds,
                             "source": "eager_extra",
                         }
@@ -457,26 +483,20 @@ class Player:
                         lat_c = pair.get("latitude")
                         lon_c = pair.get("longitude")
                         if ext_s and lat_c and lon_c:
+                            spatial_extent_args = {
+                                "context_key": context_key,
+                                "resource": resource,
+                                "lat_column": lat_c,
+                                "lon_column": lon_c,
+                            }
                             try:
-                                out = ext_s.invoke(
-                                    {
-                                        "context_key": context_key,
-                                        "resource": resource,
-                                        "lat_column": lat_c,
-                                        "lon_column": lon_c,
-                                    }
-                                )
+                                out = ext_s.invoke(spatial_extent_args)
                                 rk = f"{resource}:get_spatial_extent:{lat_c}:{lon_c}"
                                 tool_results[rk] = out
                                 tool_trace.append(
                                     {
                                         "tool": "get_spatial_extent",
-                                        "args": {
-                                            "context_key": context_key,
-                                            "resource": resource,
-                                            "lat_column": lat_c,
-                                            "lon_column": lon_c,
-                                        },
+                                        "args": spatial_extent_args,
                                         "result": out,
                                         "source": "eager_extra",
                                     }
@@ -485,6 +505,7 @@ class Player:
                                 tool_trace.append(
                                     {
                                         "tool": "get_spatial_extent",
+                                        "args": spatial_extent_args,
                                         "error": str(e),
                                         "source": "eager_extra",
                                     }
@@ -493,26 +514,20 @@ class Player:
                         col_t = tcc.get("column")
                         order_t = tcc.get("tuple_order", "lon_lat")
                         if ext_tuple and col_t:
+                            tuple_extent_args = {
+                                "context_key": context_key,
+                                "resource": resource,
+                                "column": col_t,
+                                "tuple_order": order_t,
+                            }
                             try:
-                                tout = ext_tuple.invoke(
-                                    {
-                                        "context_key": context_key,
-                                        "resource": resource,
-                                        "column": col_t,
-                                        "tuple_order": order_t,
-                                    }
-                                )
+                                tout = ext_tuple.invoke(tuple_extent_args)
                                 rk = f"{resource}:get_spatial_extent_from_tuple_column:{col_t}"
                                 tool_results[rk] = tout
                                 tool_trace.append(
                                     {
                                         "tool": "get_spatial_extent_from_tuple_column",
-                                        "args": {
-                                            "context_key": context_key,
-                                            "resource": resource,
-                                            "column": col_t,
-                                            "tuple_order": order_t,
-                                        },
+                                        "args": tuple_extent_args,
                                         "result": tout,
                                         "source": "eager_extra",
                                     }
@@ -521,6 +536,7 @@ class Player:
                                 tool_trace.append(
                                     {
                                         "tool": "get_spatial_extent_from_tuple_column",
+                                        "args": tuple_extent_args,
                                         "error": str(e),
                                         "source": "eager_extra",
                                     }
@@ -528,24 +544,19 @@ class Player:
                     spatial_cols = (ds or {}).get("spatial_columns") or {}
                     for col_name, info in list(spatial_cols.items())[:max_cols]:
                         if ana_s and info.get("detected_type"):
+                            analyze_spatial_args = {
+                                "context_key": context_key,
+                                "resource": resource,
+                                "column": col_name,
+                            }
                             try:
-                                out = ana_s.invoke(
-                                    {
-                                        "context_key": context_key,
-                                        "resource": resource,
-                                        "column": col_name,
-                                    }
-                                )
+                                out = ana_s.invoke(analyze_spatial_args)
                                 rk = f"{resource}:analyze_spatial_column:{col_name}"
                                 tool_results[rk] = out
                                 tool_trace.append(
                                     {
                                         "tool": "analyze_spatial_column",
-                                        "args": {
-                                            "context_key": context_key,
-                                            "resource": resource,
-                                            "column": col_name,
-                                        },
+                                        "args": analyze_spatial_args,
                                         "result": out,
                                         "source": "eager_extra",
                                     }
@@ -554,13 +565,19 @@ class Player:
                                 tool_trace.append(
                                     {
                                         "tool": "analyze_spatial_column",
+                                        "args": analyze_spatial_args,
                                         "error": str(e),
                                         "source": "eager_extra",
                                     }
                                 )
                 except Exception as e:
                     tool_trace.append(
-                        {"tool": "detect_spatial_columns", "error": str(e), "source": "eager_extra"}
+                        {
+                            "tool": "detect_spatial_columns",
+                            "args": detect_spatial_args,
+                            "error": str(e),
+                            "source": "eager_extra",
+                        }
                     )
 
     def _run_llm_tool_loop(

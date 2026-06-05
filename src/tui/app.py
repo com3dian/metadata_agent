@@ -298,6 +298,9 @@ class MetadataTUI(App):
     tui_log_handler: TUILogHandler | None = None
     at_suggestions: list[tuple[str, str]]
     at_selected_index: int
+    input_history: list[str]
+    input_history_browse_index: int
+    _loading_input_history: bool
     INPUT_MIN_HEIGHT = 3
     INPUT_MAX_HEIGHT = 12
     STATUS_ICONS = ["🌑", "🌒", "🌓", "🌔", "🌕", "🌖", "🌗", "🌘"]
@@ -458,6 +461,9 @@ class MetadataTUI(App):
     def on_mount(self) -> None:
         self.ui_events = queue.Queue()
         self._reset_at_suggestions()
+        self.input_history = []
+        self.input_history_browse_index = -1
+        self._loading_input_history = False
         self.status_icon_index = 0
         self._status_message = ""
         self.set_interval(0.1, self._flush_ui_events)
@@ -835,6 +841,8 @@ class MetadataTUI(App):
             messages = self.query_one("#messages", Vertical)
             messages.remove_children()
             self.reference_session.clear_current()
+            self.input_history.clear()
+            self.input_history_browse_index = -1
             return
         if command_text in self.EXIT_COMMANDS:
             self.exit()
@@ -853,6 +861,9 @@ class MetadataTUI(App):
             return
 
         user_text = input_widget.text.strip()
+        if user_text:
+            self.input_history.append(user_text)
+            self.input_history_browse_index = -1
         input_widget.load_text("")
         self._update_input_height(input_widget)
         self._update_suggestions("", 0)
@@ -930,9 +941,22 @@ class MetadataTUI(App):
             f"Captured valid file context: {file_summary}. No @standard provided yet.",
         )
 
+    def _set_prompt_text(self, input_widget: TextArea, text: str) -> None:
+        self._loading_input_history = True
+        try:
+            input_widget.load_text(text)
+            input_widget.move_cursor(self._location_from_offset(text, len(text)))
+            self.reference_session.update_from_input(text, self.reference_root)
+            self._update_input_height(input_widget)
+            self._update_suggestions(text, len(text))
+        finally:
+            self._loading_input_history = False
+
     def on_text_area_changed(self, event: TextArea.Changed) -> None:
         if event.text_area.id != "user_input":
             return
+        if not self._loading_input_history:
+            self.input_history_browse_index = -1
         cursor_position = self._cursor_offset(event.text_area)
         self.reference_session.update_from_input(event.text_area.text, self.reference_root)
         self._update_input_height(event.text_area)
@@ -959,11 +983,36 @@ class MetadataTUI(App):
         current_text = input_widget.text
         cursor_position = self._cursor_offset(input_widget)
         active_token = self._get_active_token(current_text, cursor_position)
-        if not active_token.startswith("@") or not self.at_suggestions:
+        if active_token.startswith("@") and self.at_suggestions:
+            delta = -1 if key == "up" else 1
+            self.at_selected_index = (self.at_selected_index + delta) % len(self.at_suggestions)
+            self._update_suggestions(current_text, cursor_position)
+            return True
+
+        if current_text.strip() and self.input_history_browse_index < 0:
             return False
-        delta = -1 if key == "up" else 1
-        self.at_selected_index = (self.at_selected_index + delta) % len(self.at_suggestions)
-        self._update_suggestions(current_text, cursor_position)
+
+        if not self.input_history:
+            return False
+
+        if key == "up":
+            if self.input_history_browse_index < 0:
+                self.input_history_browse_index = len(self.input_history) - 1
+            elif self.input_history_browse_index > 0:
+                self.input_history_browse_index -= 1
+        else:
+            if self.input_history_browse_index < 0:
+                return False
+            if self.input_history_browse_index >= len(self.input_history) - 1:
+                self.input_history_browse_index = -1
+                self._set_prompt_text(input_widget, "")
+                return True
+            self.input_history_browse_index += 1
+
+        self._set_prompt_text(
+            input_widget,
+            self.input_history[self.input_history_browse_index],
+        )
         return True
 
     def _handle_prompt_tab(self, input_widget: TextArea) -> bool:
