@@ -7,7 +7,13 @@ import pandas as pd
 from typing import List, Dict, Any, Optional, Iterator
 from pathlib import Path
 
-from .base_context import ExecutionContext, ContextType, ResourceInfo, FieldInfo, RelationshipInfo
+from src.context.base_context import (
+    ContextType,
+    ExecutionContext,
+    FieldInfo,
+    RelationshipInfo,
+    ResourceInfo,
+)
 
 
 class SQLiteContext(ExecutionContext):

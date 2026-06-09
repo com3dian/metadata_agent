@@ -2,14 +2,16 @@
 Step-level execution with parallel players and debate.
 
 This module implements the core logic for executing a single plan step:
+
 1. Spawn multiple players (based on topology)
 2. Each player executes the task in parallel
 3. Players debate (critique and revise) their results
 4. A synthesizer consolidates the final result
 
-Uses the unified ExecutionContext abstraction for all data access.
+Uses the unified :class:`~src.context.ExecutionContext` abstraction for all data access.
 
-The execution flow is:
+The execution flow is::
+
     execute_parallel → critique → revise → [loop or synthesize]
 """
 import logging
@@ -18,9 +20,9 @@ from typing import Dict, Any, List, Optional, Type
 from pydantic import BaseModel
 from langgraph.graph import StateGraph, END
 
-from src.core.state import StepExecutionState, PlayerResult, DebateEntry
-from ..players import Player, create_player_from_config, PLAYER_CONFIGS
-from ..tools.context_tools import filter_tools_by_context_type
+from src.core import DebateEntry, PlayerResult, StepExecutionState
+from src.players import PLAYER_CONFIGS, Player, create_player_from_config
+from src.tools.context_tools import filter_tools_by_context_type
 
 
 # ===================================================================

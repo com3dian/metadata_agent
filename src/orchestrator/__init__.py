@@ -2,14 +2,16 @@
 Orchestrator module for the multi-agent metadata extraction system.
 
 This module provides:
-- Orchestrator: Main class for planning and executing metadata extraction
-- PlanExecutor: Executes a complete plan with parallel players
+
+- :class:`~src.orchestrator.Orchestrator`: Main class for planning and executing metadata extraction
+- :class:`~src.orchestrator.PlanExecutor`: Executes a complete plan with parallel players
 - Step execution via LangGraph
 
-Uses the unified ExecutionContext abstraction for all data access.
-See `src.context` for context creation and configuration.
+Uses the unified :class:`~src.context.ExecutionContext` abstraction for all data
+access. See :mod:`src.context` for context creation and configuration.
 
-Typical usage:
+Typical usage::
+
     from src.orchestrator import Orchestrator
     from src.standards import METADATA_STANDARDS
     
@@ -46,8 +48,14 @@ Typical usage:
 
 from .orchestrator import Orchestrator, run_metadata_extraction
 from .plan_executor import PlanExecutor, execute_plan
-from src.core.schemas import Plan, Task, StepResult, ExecutionResult
-from src.core.state import StepExecutionState, PlanExecutionState
+from src.core import (
+    ExecutionResult,
+    Plan,
+    PlanExecutionState,
+    StepExecutionState,
+    StepResult,
+    Task,
+)
 
 __all__ = [
     # Main classes

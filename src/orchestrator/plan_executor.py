@@ -2,25 +2,27 @@
 Plan Executor - Orchestrates the execution of a complete plan.
 
 This module provides the PlanExecutor class that:
+
 1. Takes a generated plan and execution topology
 2. Iterates through each step sequentially
 3. For each step, spawns parallel players and runs debates
 4. Accumulates artifacts in a workspace
 5. Produces the final metadata output
 
-Uses the unified ExecutionContext abstraction for all data access.
+Uses the unified :class:`~src.context.ExecutionContext` abstraction for all data
+access. 
 """
 import logging
 from typing import Dict, Any, List, Optional, Type
 
 from pydantic import BaseModel
 
-from src.core.schemas import Plan, ExecutionResult, StepResult
+from src.core import ExecutionResult, Plan, StepResult
 from src.context import ExecutionContext
 from src.standards import get_schema_for_standard
 
-from .step_executor import get_step_execution_graph, create_step_state
-from ..topology import EXECUTION_TOPOLOGIES
+from src.orchestrator.step_executor import create_step_state, get_step_execution_graph
+from src.topology import EXECUTION_TOPOLOGIES
 
 
 class PlanExecutor:

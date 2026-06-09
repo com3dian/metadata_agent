@@ -106,3 +106,12 @@ venv.bak
 # IDE specific files
 .idea/
 .vscode/
+
+# Data files
+data/sample/
+data/output/
+logs/
+temp/
+
+# W&B files
+wandb/

@@ -5,5 +5,7 @@
 
 tutorial
 architecture
+demo
+examples
 reference/index
 ```

@@ -8,25 +8,20 @@ from typing import Any, Dict, List, Optional, Union
 
 from langchain_core.output_parsers import PydanticOutputParser
 
-from src.core.schemas import Plan, ExecutionResult
+from src.core import ExecutionResult, Plan
 
-from ..config import (
-    DEFAULT_TOPOLOGY,
-    LLM_PROVIDER,
-    PLANNING_TEMPERATURE,
-    create_llm,
-)
-from ..context import ContextType, ExecutionContext, create_context
-from ..context.context_classifier import classify_context_type
-from ..players import PLAYER_CONFIGS, Player, create_player_from_config
-from ..tools.context_tools import (
+from src.config import DEFAULT_TOPOLOGY, LLM_PROVIDER, create_llm
+from src.context import ContextType, ExecutionContext, create_context
+from src.context.context_classifier import classify_context_type
+from src.players import PLAYER_CONFIGS, Player, create_player_from_config
+from src.tools.context_tools import (
     register_context,
     filter_tools_by_context_type,
 )
-from ..topology import EXECUTION_TOPOLOGIES
-from .plan_executor import PlanExecutor
-from .prompts import get_multi_csv_planning_prompt, get_single_csv_planning_prompt
-from .utils import validate_plan_dataflow, validate_plan_tool_compatibility
+from src.topology import EXECUTION_TOPOLOGIES
+from src.orchestrator.plan_executor import PlanExecutor
+from src.orchestrator.prompts import get_multi_csv_planning_prompt, get_single_csv_planning_prompt
+from src.orchestrator.utils import validate_plan_dataflow, validate_plan_tool_compatibility
 
 
 class Orchestrator:
@@ -194,6 +189,19 @@ class Orchestrator:
     def generate_plan(
         self, context: ExecutionContext, metadata_standard: str
     ) -> Optional[Plan]:
+        """Generate an executable metadata extraction plan for a context.
+
+        Classifies the context, builds the player manifest and context summary,
+        invokes the appropriate planning chain, and returns the parsed plan.
+        Returns ``None`` if the planner fails or produces an invalid response.
+
+        Args:
+            context: Execution context containing the available resources.
+            metadata_standard: Metadata standard the generated plan should target.
+
+        Returns:
+            A generated plan when planning succeeds; otherwise ``None``.
+        """
         classified_type = self._classify_context_for_planning(context)
         is_multi_context = classified_type in self.MULTI_CONTEXT_TYPES
 
@@ -281,6 +289,18 @@ class Orchestrator:
         metadata_standard: str,
         metadata_standard_name: Optional[str] = None,
     ) -> ExecutionResult:
+        """
+        A wrapper around the PlanExecutor to run a plan with the given context and metadata standard. 
+
+        Args:
+            plan: The plan to execute.
+            context: Execution context containing source data and derived state.
+            metadata_standard: Metadata standard content used by executor steps.
+            metadata_standard_name: Optional standard name for structured output.
+
+        Returns:
+            ExecutionResult produced by the plan executor.
+        """
         context_key = f"ctx_{uuid.uuid4().hex[:8]}"
         register_context(context_key, context)
 

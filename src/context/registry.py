@@ -4,7 +4,7 @@ Shared context type registry and helper utilities.
 
 from pathlib import Path
 
-from .base_context import ContextType
+from src.context.base_context import ContextType
 
 
 EXTENSION_MAP = {
