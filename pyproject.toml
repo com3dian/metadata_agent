@@ -1,9 +1,13 @@
+
 [project]
 name = "metadata-agent"
 version = "0.1.0"
 description = "An agentic generative (LLM-based) tool for extracting metadata from datasets."
-readme = "README.md"
+readme = "readme.md"
 requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "com3dian" }]
+dynamic = ["dependencies"]
 dependencies = [
     "langchain>=1.2.15",
     "langchain-google-genai>=4.2.2",
@@ -15,12 +19,19 @@ dependencies = [
     "ruff>=0.15.11",
 ]
 
+[project.scripts]
+metadata-agent = "src.main:main"
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.txt"] }
+
 [build-system]
 requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["."]
+include = ["src", "src.*"]
 
 [dependency-groups]
 docs = [

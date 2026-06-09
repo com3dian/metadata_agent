@@ -61,6 +61,13 @@ PLANNING_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE_PLANNING", "0.0"))
 # Can be overridden by environment variable: LLM_TEMPERATURE_PLAYER  
 PLAYER_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE_PLAYER", "0.3"))
 
+# Player tool execution: "llm" = model chooses tools and arguments (bind_tools loop);
+# "eager" = invoke all compatible tools deterministically (legacy).
+PLAYER_TOOL_EXECUTION_MODE = os.getenv("PLAYER_TOOL_EXECUTION_MODE", "eager")
+
+# Max model↔tool rounds per task when tool_execution_mode is "llm".
+PLAYER_MAX_TOOL_ITERATIONS = int(os.getenv("PLAYER_MAX_TOOL_ITERATIONS", "8"))
+
 
 # =============================================================================
 # PROVIDER-SPECIFIC API KEYS AND ENDPOINTS
@@ -72,6 +79,7 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 # Surf (custom OpenAI-compatible endpoint)
 SURF_API_BASE = os.getenv("SURF_API_BASE")  # e.g., "http://localhost:8000/v1"
 SURF_API_KEY = os.getenv("SURF_API_KEY")  # Required for Surf provider
+SURF_ENABLE_THINKING = os.getenv("SURF_ENABLE_THINKING", "false").lower() == "true"
 
 # OpenAI
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -83,11 +91,28 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 # Default execution topology
 # Can be overridden by environment variable: DEFAULT_TOPOLOGY
-DEFAULT_TOPOLOGY = os.getenv("DEFAULT_TOPOLOGY", "default")
+DEFAULT_TOPOLOGY = os.getenv("DEFAULT_TOPOLOGY", "single")
 
 # Default metadata standard
 # Can be overridden by environment variable: DEFAULT_METADATA_STANDARD
 DEFAULT_METADATA_STANDARD = os.getenv("DEFAULT_METADATA_STANDARD", "basic")
+
+# TUI logging level (e.g., DEBUG, INFO, WARNING, ERROR)
+# Can be overridden by environment variable: TUI_LOG_LEVEL
+TUI_LOG_LEVEL = os.getenv("TUI_LOG_LEVEL", "INFO").upper()
+
+# Comma-separated logger prefixes to suppress from TUI output
+# Example: "src.orchestrator.step_executor,src.players.player"
+TUI_LOG_SUPPRESSED_LOGGERS = os.getenv(
+    "TUI_LOG_SUPPRESSED_LOGGERS",
+    "src.orchestrator.step_executor,src.players.player",
+)
+
+# TUI user-facing log verbosity:
+# - "quiet": status line only (no streamed log lines in chat)
+# - "normal": status line + explicit UI messages
+# - "debug": status line + all streamed log lines
+TUI_UI_VERBOSITY = os.getenv("TUI_UI_VERBOSITY", "normal").lower()
 
 
 # =============================================================================
@@ -163,11 +188,21 @@ def create_llm(
                 "SURF_API_KEY not found. Set it in your .env file."
             )
         
+        model_kwargs = kwargs.pop("model_kwargs", {}) or {}
+        extra_body = model_kwargs.get("extra_body", {}) or {}
+        chat_template_kwargs = extra_body.get("chat_template_kwargs", {}) or {}
+        # Disable reasoning/thinking output by default for Surf-compatible backends.
+        # This helps keep responses clean for downstream structured parsing.
+        chat_template_kwargs.setdefault("enable_thinking", SURF_ENABLE_THINKING)
+        extra_body["chat_template_kwargs"] = chat_template_kwargs
+        model_kwargs["extra_body"] = extra_body
+
         return ChatOpenAI(
             model=model,
             temperature=temperature,
             openai_api_key=SURF_API_KEY,
             openai_api_base=SURF_API_BASE,
+            model_kwargs=model_kwargs,
             **kwargs
         )
     
@@ -215,5 +250,6 @@ Planning Temperature: {PLANNING_TEMPERATURE}
 Player Temperature: {PLAYER_TEMPERATURE}
 Default Topology: {DEFAULT_TOPOLOGY}
 Default Metadata Standard: {DEFAULT_METADATA_STANDARD}
+TUI Log Level: {TUI_LOG_LEVEL}
 API Key ({api_key_env}): {'Set' if api_key_set else 'Not Set'}
 """
