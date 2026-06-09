@@ -16,6 +16,22 @@ import logging
 from pathlib import Path
 from time import perf_counter
 
+import wandb
+import weave
+weave.init("metadata-agent-wandb-weave")
+
+class TrackedOrchestrator(Orchestrator):
+    @weave.op(name="Orchestrator.generate_plan")
+    def generate_plan(self, *args, **kwargs):
+        return super().generate_plan(*args, **kwargs)
+
+    @weave.op(name="Orchestrator.execute_plan")
+    def execute_plan(self, *args, **kwargs):
+        return super().execute_plan(*args, **kwargs)
+
+    @weave.op(name="Orchestrator.run")
+    def run(self, *args, **kwargs):
+        return super().run(*args, **kwargs)
 
 # Three logging modes are available:
 # "full" prints all logs including those used in other modules;
@@ -66,6 +82,15 @@ log_step_section(1, "Define source")
 source = {"data": example_config.DATA_FILE}
 topology_name = agent_config.DEFAULT_TOPOLOGY
 
+with wandb.init(
+    project="metadata-agent-wandb-weave",
+) as run:
+    dataset_artifact = wandb.Artifact(name="input_dataset", type="dataset")
+    # dataset_artifact.add_file(example_config.DATA_FILE)
+    dataset_artifact.add_reference(example_config.DATA_FILE)
+
+    run.log_artifact(dataset_artifact)
+
 logger.info("%s", agent_config.get_config_summary())
 logger.info("%s", example_config.config_summary())
 
@@ -82,7 +107,8 @@ step_start = log_step_timing("Create context", step_start)
 # metadata standard. The selected topology controls which planning strategy is
 # used, while provider/model/temperature control the LLM call.
 log_step_section(3, "Generate plan")
-orchestrator = Orchestrator(
+
+orchestrator = TrackedOrchestrator(
     topology_name=topology_name,
     model_name=agent_config.get_model_name(),
     temperature=agent_config.PLANNING_TEMPERATURE,
@@ -113,7 +139,6 @@ step_start = log_step_timing("Execute plan", step_start)
 
 # 5. Collect and persist the final metadata output produced by the plan.
 log_step_section(5, "Write metadata")
-
 metadata_output = result.final_workspace['metadata_output']
 output_dir = Path(example_config.OUTPUT_DIR)
 output_dir.mkdir(parents=True, exist_ok=True)
