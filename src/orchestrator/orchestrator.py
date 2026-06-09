@@ -34,10 +34,10 @@ class Orchestrator:
 
     def __init__(
         self,
-        topology_name: str,
-        model_name: str,
-        temperature: float,
-        provider: str,
+        topology_name: str = DEFAULT_TOPOLOGY,
+        model_name: Optional[str] = None,
+        temperature: Optional[float] = None,
+        provider: Optional[str] = None,
     ):
         topology_name = topology_name or DEFAULT_TOPOLOGY
         temperature = temperature if temperature is not None else PLANNING_TEMPERATURE
@@ -144,7 +144,9 @@ class Orchestrator:
                     config["tools"] = filter_tools_by_context_type(
                         config.get("tools", []), context.context_type
                     )
-                player = create_player_from_config(config, name=role_name)
+                player = create_player_from_config(
+                    config, name=role_name, role_key=role_name
+                )
                 manifest_parts.append(player.get_tool_manifest())
 
         return "\n\n".join(manifest_parts)
@@ -203,6 +205,7 @@ class Orchestrator:
         classified_type = self._classify_context_for_planning(context)
         is_multi_context = classified_type in self.MULTI_CONTEXT_TYPES
 
+        logging.info("[ui] planning")
         logging.info("=" * 60)
         logging.info("GENERATING PLAN")
         logging.info(f"Context: {context.name}")

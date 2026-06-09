@@ -59,7 +59,14 @@ EXECUTION_TOPOLOGIES: Dict[str, Dict[str, Any]] = {
         ),
         "players_per_step": 3,
         "debate_rounds": 2,
-        "player_pool": ["data_analyst", "schema_expert", "metadata_specialist"],
+        "player_pool": [
+            "data_analyst",
+            "schema_expert",
+            "metadata_specialist",
+            "relationship_analyst",
+            "spatial_temporal_specialist",
+            "critic",
+        ],
     },
     "fast": {
         "description": (
@@ -67,7 +74,14 @@ EXECUTION_TOPOLOGIES: Dict[str, Dict[str, Any]] = {
         ),
         "players_per_step": 2,
         "debate_rounds": 1,
-        "player_pool": ["data_analyst", "schema_expert"],
+        "player_pool": [
+            "data_analyst",
+            "schema_expert",
+            "metadata_specialist",
+            "relationship_analyst",
+            "spatial_temporal_specialist",
+            "critic",
+        ],
     },
     "thorough": {
         "description": (
@@ -75,7 +89,14 @@ EXECUTION_TOPOLOGIES: Dict[str, Dict[str, Any]] = {
         ),
         "players_per_step": 4,
         "debate_rounds": 3,
-        "player_pool": ["data_analyst", "schema_expert", "metadata_specialist", "critic"],
+        "player_pool": [
+            "data_analyst",
+            "schema_expert",
+            "metadata_specialist",
+            "relationship_analyst",
+            "spatial_temporal_specialist",
+            "critic",
+        ],
     },
     "single": {
         "description": (
@@ -83,6 +104,13 @@ EXECUTION_TOPOLOGIES: Dict[str, Dict[str, Any]] = {
         ),
         "players_per_step": 1,
         "debate_rounds": 0,
-        "player_pool": ["data_analyst"],
+        "player_pool": [
+            "data_analyst",
+            "schema_expert",
+            "metadata_specialist",
+            "relationship_analyst",
+            "spatial_temporal_specialist",
+            "critic",
+        ],
     },
 }

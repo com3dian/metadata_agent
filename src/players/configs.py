@@ -326,8 +326,11 @@ PLAYER_CONFIGS: Dict[str, Dict[str, Any]] = {
             context_tools.detect_spatial_columns,
             context_tools.analyze_spatial_column,
             context_tools.get_spatial_extent,
+            context_tools.get_spatial_extent_from_tuple_column,
             context_tools.get_temporal_extent,
         ],
+        # Model-driven tool calls supply required args (column, lat/lon, etc.).
+        "tool_execution_mode": "llm",
         "temperature": 0.3,  # Lower for more precise technical analysis
     },
 }

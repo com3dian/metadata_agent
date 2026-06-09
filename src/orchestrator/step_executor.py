@@ -448,7 +448,9 @@ def create_step_state(
         config.get("tools", []), context.context_type
     )
     for i in range(players_per_step):
-        player = create_player_from_config(config, name=f"{role_to_use}_{i+1}")
+        player = create_player_from_config(
+            config, name=f"{role_to_use}_{i+1}", role_key=role_to_use
+        )
         players.append(player)
     
     logging.info(f"  Created {players_per_step} '{role_to_use}' player(s)")
