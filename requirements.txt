@@ -7,3 +7,10 @@ python-dotenv
 pandas
 textual
 ruff  # For linting
+
+# sphinx
+sphinx
+pydata-sphinx-theme
+myst-parser
+sphinx-copybutton
+sphinx-autoapi
