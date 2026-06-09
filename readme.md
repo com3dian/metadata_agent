@@ -1,4 +1,5 @@
 <div align="center">
+<img width="233" height="233" alt="New Project(2)" src="https://github.com/user-attachments/assets/45d652b6-492f-4ee7-a353-d06310c069cb" />
 
 # Metadata Agent
 [![arXiv](https://img.shields.io/badge/arXiv-coming--soon-lightgrey.svg)](https://github.com/com3dian/metadata_agent)
