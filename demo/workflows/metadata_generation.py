@@ -6,9 +6,15 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any, Callable
 
+import numpy as np
 import pandas as pd
 
-from src.config import LLM_PROVIDER, PLANNING_TEMPERATURE, get_model_name
+from src.config import (
+    DEFAULT_TOPOLOGY,
+    LLM_PROVIDER,
+    PLANNING_TEMPERATURE,
+    get_model_name,
+)
 from src.context import create_context
 from src.orchestrator import Orchestrator
 from src.standards import METADATA_STANDARDS, load_metadata_standard
@@ -69,7 +75,7 @@ def generate_metadata(
     file_name: str,
     file_bytes: bytes,
     standard_name: str,
-    topology_name: str = "default",
+    topology_name: str = DEFAULT_TOPOLOGY,
     progress_callback: Callable[[str, Any | None], None] | None = None,
 ) -> dict[str, Any]:
     """Run metadata extraction for an uploaded file and return JSON-friendly output.
@@ -103,7 +109,7 @@ def generate_metadata(
     try:
         dataset_name = Path(file_name).stem
         metadata_standard = load_metadata_standard(standard_name)
-        context = create_context(temp_path, name=dataset_name)
+        context = create_context({"data": temp_path}, name=dataset_name)
         _publish_progress(progress_callback, "context_created", context.to_dict())
 
         orchestrator = Orchestrator(
@@ -213,7 +219,17 @@ def _to_displayable(value: Any) -> Any:
         A JSON-friendly representation of the value.
     """
     if hasattr(value, "model_dump"):
-        return value.model_dump(mode="json")
-    if isinstance(value, (dict, list, str, int, float, bool)) or value is None:
+        return _to_displayable(value.model_dump(mode="python"))
+    if isinstance(value, dict):
+        return {str(key): _to_displayable(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_to_displayable(item) for item in value]
+    if isinstance(value, np.ndarray):
+        return _to_displayable(value.tolist())
+    if isinstance(value, np.generic):
+        return _to_displayable(value.item())
+    if isinstance(value, pd.Timestamp):
+        return value.isoformat()
+    if isinstance(value, (str, int, float, bool)) or value is None:
         return value
     return json.loads(json.dumps(value, default=str))
