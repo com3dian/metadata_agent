@@ -87,7 +87,7 @@ docker-down:
 	docker compose down
 
 docker-logs:
-	docker compose logs -f metadata-demo
+	docker compose logs -f metadata-demo caddy
 
 lint:
 	$(UV) run ruff check .

@@ -7,14 +7,21 @@ services:
     expose:
       - "8501"
 
-  nginx:
-    image: nginx:1.27-alpine
+  caddy:
+    image: caddy:2-alpine
     restart: unless-stopped
     depends_on:
       - metadata-demo
     environment:
-      SERVER_NAME: ${SERVER_NAME:-_}
+      SERVER_NAME: ${SERVER_NAME:?Set SERVER_NAME in .env to your public domain}
     ports:
       - "80:80"
+      - "443:443"
     volumes:
-      - ./nginx/templates:/etc/nginx/templates:ro
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

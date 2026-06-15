@@ -1,0 +1,9 @@
+{$SERVER_NAME} {
+    encode zstd gzip
+
+    request_body {
+        max_size 50MB
+    }
+
+    reverse_proxy metadata-demo:8501
+}
