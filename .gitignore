@@ -113,8 +113,6 @@ data/output/
 logs/
 
 # Deployment
-nginx.metadata-demo.conf
-deploy.sh
 temp/
 
 # W&B files
