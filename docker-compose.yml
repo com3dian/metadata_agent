@@ -17,4 +17,4 @@ services:
     ports:
       - "80:80"
     volumes:
-      - ./nginx.metadata-demo.conf:/etc/nginx/templates/default.conf.template:ro
+      - ./nginx/templates:/etc/nginx/templates:ro
