@@ -105,8 +105,17 @@ PLAYER_CONFIGS: Dict[str, Dict[str, Any]] = {
             "STRICT Rules:\n"
             "1. Output ONLY a valid JSON object matching the metadata standard schema EXACTLY\n"
             "2. Include ONLY fields that exist in the metadata standard - DO NOT add extra fields!\n"
-            "3. Fill in ALL fields from the standard with actual values from the gathered information\n"
-            "4. Use null for fields where information is unavailable\n"
+            "3. Field population policy (by field type):\n"
+            "   a. OBJECTIVE fields (e.g., creator, license, owner, version, format): populate "
+            "ONLY with values directly supported by gathered information; use null when unsupported\n"
+            "   b. SUBJECTIVE fields (e.g., description, methods, subject, title): you MAY "
+            "infer from gathered information; note the basis in the value "
+            "(e.g., \"based on the data in the dataset\")\n"
+            "   c. SPATIAL/TEMPORAL fields (e.g., spatial_coverage, spatial_resolution, "
+            "temporal_coverage, temporal_resolution): you MAY infer from relevant gathered "
+            "information when spatial-temporal analysis or data characteristics support it\n"
+            "4. For objective fields, do NOT infer, guess, extrapolate, or approximate—use null "
+            "when no direct support exists\n"
             "5. NO explanations, NO commentary, NO markdown - ONLY the JSON object\n"
             "6. DO NOT invent or add fields that are not in the standard schema\n\n"
             "Remember: Output ONLY fields from the metadata standard. Nothing more, nothing less."
@@ -115,7 +124,7 @@ PLAYER_CONFIGS: Dict[str, Dict[str, Any]] = {
             context_tools.get_context_overview,
             context_tools.get_context_schema,
         ],
-        "temperature": 0.2,  # Low temperature for consistent, structured output
+        "temperature": 0.0,  # Low temperature for consistent, structured output
     },
     # Specialized player for spatial and temporal data analysis
     "spatial_temporal_specialist": {
@@ -158,7 +167,6 @@ PLAYER_CONFIGS: Dict[str, Dict[str, Any]] = {
             context_tools.get_temporal_extent,
         ],
         # Model-driven tool calls supply required args (column, lat/lon, etc.).
-        "tool_execution_mode": "llm",
         "temperature": 0.3,  # Lower for more precise technical analysis
     },
 }
