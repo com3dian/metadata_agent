@@ -38,9 +38,10 @@ class Player:
         name: str,
         role_prompt: str,
         tools: Optional[List[BaseTool]] = None,
-        model_name: str = None,
-        temperature: float = None,
-        provider: str = None
+        model_name: Optional[str] = None,
+        temperature: Optional[float] = None,
+        provider: Optional[str] = None,
+        role_key: Optional[str] = None,
     ):
         """
         Initialize a Player with a role and tools.
@@ -52,12 +53,14 @@ class Player:
             model_name: The LLM model to use (default from config)
             temperature: LLM temperature (default from config)
             provider: LLM provider to use (default from config)
+            role_key: Canonical player role key from PLAYER_CONFIGS
         """
         # Use config defaults if not specified
         temperature = temperature if temperature is not None else PLAYER_TEMPERATURE
         provider = provider or LLM_PROVIDER
         
         self.name = name
+        self.role_key = role_key or name
         self.role_prompt = role_prompt
         self.tools = tools or []
         self.llm = create_llm(
@@ -88,7 +91,7 @@ class Player:
         context_info: Dict[str, Any],
         workspace: Dict[str, Any],
         inputs: Dict[str, str],
-        target_resources: List[str] = None
+        target_resources: Optional[List[str]] = None
     ) -> Dict[str, Any]:
         """
         Execute a specific task using available tools.
@@ -647,7 +650,8 @@ Generate the final structured output.""")
 def create_player_from_config(
     config: Dict[str, Any], 
     name: str,
-    provider: str = None
+    provider: Optional[str] = None,
+    role_key: Optional[str] = None,
 ) -> Player:
     """
     Factory function to create a Player from a configuration dictionary.
@@ -656,15 +660,18 @@ def create_player_from_config(
         config: Dictionary with 'role_prompt', 'tools', and optional 'model_name', 'temperature'
         name: The name to assign to this player instance
         provider: LLM provider to use (default from config)
+        role_key: Canonical player role key from PLAYER_CONFIGS
         
     Returns:
         Configured Player instance
     """
+    resolved_role_key = role_key if role_key is not None else config.get("_role_key")
     return Player(
         name=name,
         role_prompt=config.get("role_prompt", "You are a helpful analyst."),
         tools=config.get("tools", []),
         model_name=config.get("model_name"),  # None means use config default
         temperature=config.get("temperature"),  # None means use config default
-        provider=provider
+        provider=provider,
+        role_key=resolved_role_key,
     )
