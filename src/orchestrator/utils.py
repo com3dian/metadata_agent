@@ -12,6 +12,7 @@ DEFAULT_WORKSPACE_ARTIFACTS = {
     "_schema",
 }
 
+
 def validate_plan_dataflow(
     plan: List[Dict[str, Any]],
     initial_artifacts: Optional[Set[str]] = None
