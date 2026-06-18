@@ -111,6 +111,8 @@ venv.bak
 data/sample/
 data/output/
 logs/
+
+# Deployment
 temp/
 
 # W&B files

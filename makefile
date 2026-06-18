@@ -6,7 +6,7 @@ PYTHON-VERSION := 3.11
 PYTHON := $(VENV)/bin/python
 RUFF := $(VENV)/bin/ruff
 
-.PHONY: help uv-setup uv-clean activate install-docs docs docs-update docs-clean lint compile test ci
+.PHONY: help uv-setup uv-clean activate install-docs docs docs-update docs-clean install-demo demo docker-install-demo docker-run-demo docker-build docker-up docker-down docker-logs lint compile test ci
 
 help:
 	@printf '%s\n' \
@@ -18,6 +18,13 @@ help:
 		'  make docs       - build the documentation and open it in the browser' \
 		'  make docs-update - update the documentation' \
 		'  make docs-clean - clean the generated documentation files' \
+		'  make demo       - install demo dependencies and launch Streamlit locally' \
+		'  make docker-install-demo - install locked demo dependencies for Docker' \
+		'  make docker-run-demo - launch Streamlit for Docker' \
+		'  make docker-build - build the Docker image' \
+		'  make docker-up   - build and start the Docker Compose service' \
+		'  make docker-down - stop the Docker Compose service' \
+		'  make docker-logs - follow Docker Compose service logs' \
 		'  make lint       - run ruff linter on the codebase' \
 		'  make compile    - compile the source code to check for syntax errors' \
 		'  make test       - run unit tests' \
@@ -64,6 +71,24 @@ install-demo:
 demo: install-demo
 	$(UV) run --group demo streamlit run demo_app.py
 
+docker-install-demo:
+	$(UV) sync --locked --no-default-groups --group demo
+
+docker-run-demo:
+	$(UV) run --no-sync --group demo streamlit run demo_app.py --server.address=0.0.0.0 --server.port=8501
+
+docker-build:
+	docker compose build
+
+docker-up:
+	docker compose up -d --build
+
+docker-down:
+	docker compose down
+
+docker-logs:
+	docker compose logs -f metadata-demo caddy
+
 lint:
 	$(UV) run ruff check .
 
@@ -77,3 +102,7 @@ ci-install:
 	$(UV) sync --locked --no-default-groups
 
 ci: lint compile test
+
+tui:
+	$(UV) pip install -e .
+	metadata-agent --tui
