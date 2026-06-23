@@ -5,6 +5,8 @@ triggering the workflow, caching results in Streamlit session state, and
 rendering the workflow output.
 """
 
+import multiprocessing
+from queue import Empty
 from typing import Any
 
 import streamlit as st
@@ -28,12 +30,12 @@ def render_controls() -> tuple[UploadedFile | None, str]:
         The uploaded file, if present, and the selected metadata standard name.
     """
     uploaded_file = st.file_uploader(
-        "Upload a dataset",
+        "Upload a dataset: ",
         type=SUPPORTED_FILE_TYPES,
         help="CSV and TSV files are supported by the demo context.",
     )
     standard_name = st.selectbox(
-        "Metadata standard",
+        "Choose ametadata standard: ",
         options=available_metadata_standards(),
         index=0,
     )
@@ -51,7 +53,7 @@ def render_preview(uploaded_file: UploadedFile, file_bytes: bytes) -> None:
     try:
         st.dataframe(
             load_preview(uploaded_file.name, file_bytes),
-            use_container_width=True,
+            width='stretch',
         )
         st.caption(f"{uploaded_file.name} - {len(file_bytes):,} bytes")
     except Exception as exc:
@@ -59,53 +61,40 @@ def render_preview(uploaded_file: UploadedFile, file_bytes: bytes) -> None:
 
 
 def run_generation(
-    uploaded_file: UploadedFile,
+    file_name: str,
     file_bytes: bytes,
     standard_name: str,
-    file_key: str,
-) -> dict[str, Any]:
-    """Run the metadata workflow and cache the result in session state.
+    messages: multiprocessing.Queue,
+) -> None:
+    """Run metadata generation in a child process and publish its output.
 
     Args:
-        uploaded_file: Streamlit uploaded file object.
+        file_name: Name of the uploaded file.
         file_bytes: Raw uploaded file bytes.
         standard_name: Selected metadata standard name.
-        file_key: Stable cache key for the uploaded file and standard.
-
-    Returns:
-        JSON-friendly metadata generation result.
+        messages: Queue used to publish progress and the final result.
     """
-    progress = st.status("Generating metadata", expanded=True)
-
     def show_progress(stage: str, payload: Any | None) -> None:
-        if stage == "context_created":
-            progress.write("Execution context created.")
-            with progress:
-                with st.expander("Context"):
-                    st.json(payload)
-        elif stage == "plan_generated":
-            progress.write("Execution plan generated.")
-            with progress:
-                with st.expander("Generated plan"):
-                    st.json(payload)
-        elif stage == "execution_complete":
-            progress.write("Plan execution complete.")
+        messages.put(("progress", stage, payload))
 
     try:
-        progress.write("File uploaded and staged for analysis.")
         result = generate_metadata(
-            uploaded_file.name,
+            file_name,
             file_bytes,
             standard_name,
             progress_callback=show_progress,
         )
-        st.session_state.metadata_generation_results[file_key] = result
-        progress.update(label="Metadata generated", state="complete")
-        return result
+        messages.put(("result", result))
     except Exception as exc:
-        progress.update(label="Metadata generation failed", state="error")
-        st.exception(exc)
-        st.stop()
+        messages.put(("error", repr(exc)))
+
+
+def stop_generation(job: dict[str, Any]) -> None:
+    """Terminate an active metadata generation process."""
+    process = job["process"]
+    if process.is_alive():
+        process.terminate()
+        process.join(timeout=1)
 
 
 def render_result(result: dict[str, Any]) -> None:
@@ -142,7 +131,7 @@ def render_result(result: dict[str, Any]) -> None:
                 }
                 for step in step_results
             ],
-            use_container_width=True,
+            width='stretch',
             hide_index=True,
         )
 
@@ -161,7 +150,7 @@ def render_result(result: dict[str, Any]) -> None:
 def main() -> None:
     """Render the metadata generation Streamlit page."""
     st.set_page_config(page_title="Metadata Generation", page_icon="MD", layout="wide")
-    st.title("Metadata Generation")
+    # st.title("Metadata Generation")
 
     controls_col, preview_col = st.columns([1, 2], gap="large")
 
@@ -182,22 +171,100 @@ def main() -> None:
     if "metadata_generation_results" not in st.session_state:
         st.session_state.metadata_generation_results = {}
 
-    with controls_col:
-        run_clicked = st.button("Generate metadata", type="primary", use_container_width=True)
+    @st.fragment(run_every=0.5)
+    def generation_controls() -> None:
+        action_col, output_col = st.columns([1, 2], gap="large")
+        job = st.session_state.get("metadata_generation_job")
+        if job is not None and job["file_key"] != file_key:
+            stop_generation(job)
+            st.session_state.metadata_generation_job = None
+            job = None
 
-    cached_result = st.session_state.metadata_generation_results.get(file_key)
+        running = job is not None and job["process"].is_alive()
+        with action_col:
+            clicked = st.button(
+                "Stop generation" if running else "Generate metadata",
+                type="primary",
+                width='stretch',
+            )
 
-    if run_clicked and cached_result is None:
-        with preview_col:
-            cached_result = run_generation(uploaded_file, file_bytes, standard_name, file_key)
+        if clicked and running:
+            stop_generation(job)
+            st.session_state.metadata_generation_job = None
+            with output_col:
+                st.warning("Metadata generation stopped.")
+            st.rerun(scope="fragment")
 
-    if cached_result is None:
-        with preview_col:
-            st.caption("Click Generate metadata to run the agent.")
-        st.stop()
+        if clicked and not running:
+            context = multiprocessing.get_context("spawn")
+            messages = context.Queue()
+            process = context.Process(
+                target=run_generation,
+                args=(uploaded_file.name, file_bytes, standard_name, messages),
+                daemon=True,
+            )
+            process.start()
+            job = {
+                "file_key": file_key,
+                "process": process,
+                "messages": messages,
+                "progress": [],
+            }
+            st.session_state.metadata_generation_job = job
+            running = True
 
-    with preview_col:
-        render_result(cached_result)
+        if job is not None:
+            while True:
+                try:
+                    message = job["messages"].get_nowait()
+                except Empty:
+                    break
+                if message[0] == "progress":
+                    job["progress"].append(message[1:])
+                elif message[0] == "result":
+                    st.session_state.metadata_generation_results[file_key] = message[1]
+                    job["process"].join(timeout=1)
+                    st.session_state.metadata_generation_job = None
+                    with output_col:
+                        render_result(message[1])
+                    return
+                elif message[0] == "error":
+                    st.session_state.metadata_generation_job = None
+                    with output_col:
+                        st.error(f"Metadata generation failed: {message[1]}")
+                    return
+
+            with output_col:
+                status = st.status(
+                    "Generating metadata",
+                    expanded=True,
+                    state="running",
+                )
+                status.write("File uploaded and staged for analysis.")
+                for stage, payload in job["progress"]:
+                    if stage == "context_created":
+                        status.write("Execution context created.")
+                        with status.expander("Context"):
+                            st.json(payload)
+                    elif stage == "plan_generated":
+                        status.write("Execution plan generated.")
+                        with status.expander("Generated plan"):
+                            st.json(payload)
+                    elif stage == "execution_complete":
+                        status.write("Plan execution complete.")
+                if not job["process"].is_alive():
+                    st.session_state.metadata_generation_job = None
+                    st.error("Metadata generation stopped unexpectedly.")
+            return
+
+        with output_col:
+            result = st.session_state.metadata_generation_results.get(file_key)
+            if result is None:
+                st.caption("Click Generate metadata to run the agent.")
+            else:
+                render_result(result)
+
+    generation_controls()
 
 
 if __name__ == "__main__":
