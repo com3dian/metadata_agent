@@ -21,6 +21,7 @@ from demo.workflows.metadata_generation import (
     load_preview,
     uploaded_file_key,
 )
+from src.standards import load_metadata_standard
 
 
 def render_controls() -> tuple[UploadedFile | None, str]:
@@ -35,10 +36,12 @@ def render_controls() -> tuple[UploadedFile | None, str]:
         help="CSV and TSV files are supported by the demo context.",
     )
     standard_name = st.selectbox(
-        "Choose ametadata standard: ",
+        "Choose a metadata standard: ",
         options=available_metadata_standards(),
         index=0,
     )
+    st.caption("Metadata standard preview")
+    st.code(load_metadata_standard(standard_name), language="json")
     return uploaded_file, standard_name
 
 
