@@ -5,14 +5,18 @@ triggering the workflow, caching results in Streamlit session state, and
 rendering the workflow output.
 """
 
+import json
 import multiprocessing
+from pathlib import Path
 from queue import Empty
 from time import monotonic, perf_counter
 from typing import Any, get_args
+from xml.etree import ElementTree
 
 from pydantic import BaseModel
 import streamlit as st
 from streamlit.runtime.uploaded_file_manager import UploadedFile
+import yaml
 
 from demo.workflows.metadata_generation import (
     SUPPORTED_FILE_TYPES,
@@ -42,6 +46,43 @@ CURRENT_STAGE_LABELS = {
     "executing_plan": "Executing metadata plan",
     "execution_complete": "Metadata generation complete",
 }
+
+EXPORT_FORMATS = {
+    "JSON": ("json", "application/json"),
+    "YAML": ("yaml", "application/yaml"),
+    "XML": ("xml", "application/xml"),
+}
+RESULT_TAB_KEY = "metadata_result_tab"
+
+
+def metadata_as_xml(metadata: Any) -> str:
+    """Serialize nested metadata as an XML document."""
+    root = ElementTree.Element("metadata")
+
+    def append_value(parent: ElementTree.Element, value: Any) -> None:
+        if isinstance(value, dict):
+            for key, child_value in value.items():
+                child = ElementTree.SubElement(parent, "field", name=str(key))
+                append_value(child, child_value)
+        elif isinstance(value, list):
+            for child_value in value:
+                child = ElementTree.SubElement(parent, "item")
+                append_value(child, child_value)
+        elif value is not None:
+            parent.text = str(value).lower() if isinstance(value, bool) else str(value)
+
+    append_value(root, metadata)
+    ElementTree.indent(root)
+    return ElementTree.tostring(root, encoding="unicode", xml_declaration=True)
+
+
+def serialize_metadata(metadata: Any, export_format: str) -> str:
+    """Serialize metadata in the selected export format."""
+    if export_format == "JSON":
+        return json.dumps(metadata, indent=2, ensure_ascii=False, default=str)
+    if export_format == "XML":
+        return metadata_as_xml(metadata)
+    return yaml.safe_dump(metadata, sort_keys=False, allow_unicode=True)
 
 
 def build_generation_timing(
@@ -225,14 +266,32 @@ def render_result(result: dict[str, Any]) -> None:
         result: JSON-friendly metadata generation result.
     """
     metadata_tab, plan_tab, details_tab = st.tabs(
-        ["Metadata", "Plan", "Execution details"]
+        ["Metadata", "Plan", "Execution details"],
+        key=RESULT_TAB_KEY,
+        on_change="rerun",
     )
     metadata = extract_metadata(result)
     plan = result.get("generated_plan") or []
 
     with metadata_tab:
         if metadata:
-            st.json(metadata)
+            display_format = st.session_state.get("metadata_export_format", "JSON")
+            if display_format == "JSON":
+                st.code(
+                    serialize_metadata(metadata, "JSON"),
+                    language="json",
+                    line_numbers=True,
+                    wrap_lines=True,
+                )
+            else:
+                extension, _ = EXPORT_FORMATS[display_format]
+                serialized_metadata = serialize_metadata(metadata, display_format)
+                st.code(
+                    serialized_metadata,
+                    language=extension,
+                    line_numbers=True,
+                    wrap_lines=True,
+                )
         else:
             st.warning("No final metadata artifact was found in the result.")
 
@@ -316,7 +375,14 @@ def main() -> None:
     if "metadata_generation_results" not in st.session_state:
         st.session_state.metadata_generation_results = {}
 
-    @st.fragment(run_every=0.5)
+    active_job = st.session_state.get("metadata_generation_job")
+    poll_generation = (
+        active_job is not None
+        and active_job["file_key"] == file_key
+        and active_job["process"].is_alive()
+    )
+
+    @st.fragment(run_every=0.5 if poll_generation else None)
     def generation_controls() -> None:
         job = st.session_state.get("metadata_generation_job")
         if job is not None and job["file_key"] != file_key:
@@ -325,21 +391,51 @@ def main() -> None:
             job = None
 
         running = job is not None and job["process"].is_alive()
-        action_col, _ = st.columns([1, 2], gap="large")
+        result = st.session_state.metadata_generation_results.get(file_key)
+        metadata = extract_metadata(result) if result is not None else None
+        export_disabled = not metadata or running
+        download_disabled = (
+            export_disabled
+            or st.session_state.get(RESULT_TAB_KEY, "Metadata") != "Metadata"
+        )
+        action_col, _, format_col, download_col = st.columns(
+            [1.4, 1, 0.8, 0.8], gap="small"
+        )
         with action_col:
             clicked = st.button(
                 "Stop generation" if running else "Generate metadata",
                 type="primary",
                 width='stretch',
             )
+        with format_col:
+            export_format = st.selectbox(
+                "Export format",
+                options=EXPORT_FORMATS,
+                label_visibility="collapsed",
+                disabled=download_disabled,
+                key="metadata_export_format",
+            )
+        extension, mime_type = EXPORT_FORMATS[export_format]
+        serialized_metadata = (
+            serialize_metadata(metadata, export_format) if metadata else ""
+        )
+        with download_col:
+            st.download_button(
+                "Download",
+                data=serialized_metadata,
+                file_name=f"{Path(uploaded_file.name).stem}_metadata_gen.{extension}",
+                mime=mime_type,
+                disabled=download_disabled,
+                width="stretch",
+            )
 
         if clicked and running:
             stop_generation(job)
             st.session_state.metadata_generation_job = None
-            st.warning("Metadata generation stopped.")
-            st.rerun(scope="fragment")
+            st.rerun()
 
         if clicked and not running:
+            st.session_state.metadata_generation_error = None
             context = multiprocessing.get_context("spawn")
             messages = context.Queue()
             process = context.Process(
@@ -356,7 +452,7 @@ def main() -> None:
                 "started_at": monotonic(),
             }
             st.session_state.metadata_generation_job = job
-            running = True
+            st.rerun()
 
         if job is not None:
             while True:
@@ -371,12 +467,14 @@ def main() -> None:
                     st.session_state.metadata_generation_results[file_key] = message[1]
                     job["process"].join(timeout=1)
                     st.session_state.metadata_generation_job = None
-                    render_result(message[1])
-                    return
+                    st.rerun()
                 elif message[0] == "error":
                     st.session_state.metadata_generation_job = None
-                    st.error(f"Metadata generation failed: {message[1]}")
-                    return
+                    st.session_state.metadata_generation_error = (
+                        file_key,
+                        f"Metadata generation failed: {message[1]}",
+                    )
+                    st.rerun()
 
             stages = {stage for stage, _, _ in job["progress"]}
             current_stage = (
@@ -424,10 +522,17 @@ def main() -> None:
                         st.json(payload)
             if not job["process"].is_alive():
                 st.session_state.metadata_generation_job = None
-                st.error("Metadata generation stopped unexpectedly.")
+                st.session_state.metadata_generation_error = (
+                    file_key,
+                    "Metadata generation stopped unexpectedly.",
+                )
+                st.rerun()
             return
 
-        result = st.session_state.metadata_generation_results.get(file_key)
+        generation_error = st.session_state.get("metadata_generation_error")
+        if generation_error is not None and generation_error[0] == file_key:
+            st.error(generation_error[1])
+
         if result is None:
             st.caption("Click Generate metadata to run the agent.")
         else:
